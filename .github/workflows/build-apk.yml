@@ -61,8 +61,11 @@ jobs:
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
         run: |
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          SDKM=$(ls "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -1)
+          if [ -z "$SDKM" ]; then echo "::error::未找到 sdkmanager，ANDROID_HOME=$ANDROID_HOME"; exit 1; fi
+          echo "使用 sdkmanager: $SDKM"
+          "$SDKM" --version
+          "$SDKM" --install --accept-licenses "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: 构建 Web 资源到 dist
         run: npm run build
