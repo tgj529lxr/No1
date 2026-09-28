@@ -81,6 +81,11 @@ jobs:
       - name: 同步 Web 资源与原生插件
         run: npx cap sync android
 
+      - name: 注入固定签名（保证每次构建签名一致，可覆盖安装）
+        env:
+          BUILD_STAMP: ${{ github.sha }}
+        run: node build-tools/apply-signing.js
+
       - name: 注入相机权限到 AndroidManifest.xml
         run: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"

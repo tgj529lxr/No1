@@ -19,8 +19,11 @@
  */
 'use strict';
 
-/* 每次发布改动请递增此版本号，以触发旧缓存清理 */
-const CACHE_VERSION = 'v1';
+/* 每次构建由 build.js 注入唯一版本号（形如 b20260928xxxxxx）。
+ * 版本号变化 ⇒ CACHE_NAME 变化 ⇒ activate 时旧缓存被 delete，强制拉取新资源。
+ * 这一条是「重装 APK 后界面仍是旧的」的根治手段：WebView 的应用数据在覆盖安装后会保留，
+ * 若缓存名不变、又是 cache-first，页面会一直吃老版本的 index.html。 */
+const CACHE_VERSION = 'b20260928155014';
 const CACHE_NAME = 'attendance-' + CACHE_VERSION;
 
 /* 非关键资源：缺失只影响桌面图标，不影响离线识别，允许失败 */
@@ -278,6 +281,30 @@ self.addEventListener('fetch', function (event) {
           return res;
         }).catch(function () { return hit; });
       })
+    );
+    return;
+  }
+
+  // 导航请求（打开页面）：网络优先，保证每次启动拿到的都是最新 HTML；
+  // 断网时才回落到缓存（离线仍然可用）。
+  if (req.mode === 'navigate' || url.pathname.replace(/\/+$/, '').split('/').pop() === 'index.html' || url.pathname === '/' ||
+      (new URL('./', self.location.href).href === url.href)) {
+    event.respondWith(
+      fetch(req)
+        .then(function (res) {
+          if (res && res.status === 200) {
+            const copy = res.clone();
+            event.waitUntil(
+              caches.open(CACHE_NAME).then(function (c) { return c.put(req, copy); }).catch(function () { })
+            );
+          }
+          return res;
+        })
+        .catch(function () {
+          return caches.match(req).then(function (hit) {
+            return hit || caches.match('./index.html');
+          });
+        })
     );
     return;
   }

@@ -17,6 +17,7 @@
 
 <!-- ===== 外部依赖（全部本地 vendor/，离线可用；加载失败时自动降级为纯手动模式） ===== -->
 <script src="vendor/tesseract/tesseract.min.js"></script>
+<script>window.APP_BUILD = 'b20260928155014';</script>
 <script src="vendor/xlsx.full.min.js"></script>
 <script src="vendor/exceljs.min.js"></script>
 
@@ -417,7 +418,11 @@ details pre{background:#f8fafc;border:1px solid var(--bd);border-radius:8px;padd
         <button class="btn" id="btnExportJson">导出数据备份(JSON)</button>
         <button class="btn danger" id="btnReset">恢复默认设置</button>
       </div>
+      <div class="row" style="margin-top:8px">
+        <button class="btn" id="btnForceRefresh">🔄 强制刷新（清除旧缓存重载）</button>
+      </div>
       <p class="hint">数据保存在本设备浏览器中；登录「云同步」后才会上传到你的账号，实现多设备统一。</p>
+      <p class="hint">应用版本：<span id="appBuild">—</span>（每次更新都会变化，可用于确认是否装到最新版）</p>
     </div>
   </section>
 </main>
@@ -1897,6 +1902,42 @@ function bindEvents() {
     if (!confirm('确定恢复默认设置吗？名单、课表、请假记录与标记都会被清空！')) return;
     state = defaultState();
     saveState(); renderAll(); toast('已恢复默认设置');
+  });
+
+  /* ---- 版本号显示：用于一眼确认手机上运行的是不是最新构建 ---- */
+  (function () {
+    const el = document.getElementById('appBuild');
+    if (!el) return;
+    const raw = (typeof window.APP_BUILD === 'string') ? window.APP_BUILD : '';
+    // b20260928155014 未被构建脚本替换时说明是直接打开 src，显示为 dev + 本地时间
+    el.textContent = (raw && raw.indexOf('__') !== 0) ? raw : 'dev';
+  }());
+
+  /* ---- 强制刷新：注销 SW + 清掉页面缓存后重载（保留已下载的离线 OCR 包） ---- */
+  $('#btnForceRefresh').addEventListener('click', function () {
+    if (!confirm('将清除本机的页面缓存并重新加载（离线 OCR 包会保留）。你的考勤数据不受影响。继续？')) return;
+    const done = function () { location.reload(); };
+    try {
+      const w = window;
+      const p = [];
+      if (w.navigator && w.navigator.serviceWorker && w.navigator.serviceWorker.getRegistrations) {
+        p.push(w.navigator.serviceWorker.getRegistrations().then(function (regs) {
+          return Promise.all(regs.map(function (r) { return r.unregister(); }));
+        }));
+      }
+      if (w.caches && w.caches.keys) {
+        p.push(w.caches.keys().then(function (keys) {
+          return Promise.all(keys.map(function (k) {
+            // 保留离线 OCR 包缓存，避免 14MB 重新下载
+            if (k === 'attendance-offline-v1') return null;
+            return w.caches.delete(k);
+          }));
+        }));
+      }
+      Promise.all(p).then(done, done);
+    } catch (e) {
+      done();
+    }
   });
 }
 
