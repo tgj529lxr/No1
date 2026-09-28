@@ -1,0 +1,23 @@
+{
+  "name": "attendance-helper",
+  "version": "1.0.0",
+  "private": true,
+  "description": "贵州民族大学考勤表自动填写助手（离线 OCR + PWA + 可打包 APK）",
+  "scripts": {
+    "build": "node build-tools/build.js",
+    "icons": "node build-tools/gen-icons.js",
+    "test": "node tests/run-tests.js",
+    "test:dist": "node tests/run-tests.js --html dist/index.html",
+    "test:offline": "node tests/test-offline.js",
+    "test:swui": "node tests/test-sw-ui.js",
+    "test:swfb": "node tests/test-sw-fallback.js",
+    "prebuild": "node build-tools/gen-icons.js",
+    "sync": "cap sync android",
+    "check": "node tests/run-tests.js && node tests/test-offline.js && node tests/test-sw-ui.js && node tests/test-sw-fallback.js && node tests/check-workflows.js && node tests/check-assets.js"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/cli": "^7.0.0",
+    "@capacitor/core": "^7.0.0"
+  }
+}

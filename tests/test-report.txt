@@ -1,0 +1,193 @@
+
+==================== 测试结果 ====================
+PASS S00 | 内联脚本可在 Node 沙箱中加载并执行
+PASS W01 | weekOfDate(2026-08-17) === 1（第1周周一）
+PASS W02 | weekOfDate(2026-09-14) === 5（第5周周一）
+PASS W03 | weekOfDate(2026-09-19) === 5（第5周周六仍属第5周）
+PASS W04 | weekOfDate(2026-09-18) === 5（第5周周五）
+PASS W05 | weekOfDate(2026-09-20) === 5（第5周周日仍属第5周）
+PASS W05b | weekOfDate(2026-09-21) === 6（次周周一进入第6周）
+PASS W06 | weekMonday(1) === 2026-08-17
+PASS W07 | weekMonday(5) === 2026-09-14
+PASS W08 | weekDays(5) 首日 = 2026-09-14
+PASS W09 | weekDays(5) 周五 = 2026-09-18
+PASS W10 | weekDays(5) 共 7 天，末日 = 2026-09-20（周日）
+PASS W11 | weekDays(5) 周一 dow = 1 且标签「星期一」
+PASS W12 | weekDays(5) 周五 dow = 5 且标签「星期五」
+PASS W13 | weekDays(5) dow 序列 1..7
+PASS W14 | 第5周周一~周五日期序列
+PASS W15 | dayOfWeek(2026-08-17) === 1（开学日确为周一）
+PASS W16 | dayOfWeek(2026-09-14) === 1（第5周周一确为周一）
+PASS W17 | dayOfWeek(2026-09-15) === 2（09-15 确为周二）
+PASS W18 | dayOfWeek(2026-09-18) === 5（09-18 确为周五）
+PASS P01 | parsePeriods('3')   → [3]
+PASS P02 | parsePeriods('5-6') → [5,6]
+PASS P03 | parsePeriods('1,2') → [1,2]
+PASS P04 | parsePeriods('1-2,7') → [1,2,7]
+PASS P05 | parsePeriods('')   → []
+PASS P06 | parsePeriods('11') → []（越界丢弃）
+PASS P07 | parsePeriods('3-12') → [3..10]（上限裁剪）
+PASS P08 | parsePeriods('9,10') → [9,10]
+PASS P09 | parsePeriods('5－6') 全角横杠 → [5,6]
+PASS C01 | 周一第3节 = 实变函数 @A2-A203
+PASS C02 | 周一第5节 = 习概论 @A2-D233
+PASS C03 | 周一第6节 = 习概论 @A2-D233
+PASS C04 | 周二第1节 = 大学物理实验A类 @A11-A508
+PASS C05 | 周二第2节 = 大学物理实验A类 @A11-A508
+PASS C06 | 周二第5节 = 近世代数 @A2-A203
+PASS C07 | 周二第7节 = 概率论 @A2-A203
+PASS C08 | 周三第3节 = 实变函数 @A2-A203
+PASS C09 | 周三第5、6节 = 近世代数 @A2-A203
+PASS C10 | 周四第1、2节 = 大学物理b @A2-B207
+PASS C11 | 周四第5、6节 = 习概论 @A2-C122
+PASS C12 | 周五第1、2节 = 概率论 @A2-A203
+PASS C13 | 周五第3、4节 = 大学物理b @A2-B207
+PASS C14 | 节次1 = 08:30-09:15
+PASS C15 | 节次2 = 09:25-10:10
+PASS C16 | 节次5 = 14:30-15:15
+PASS C17 | 节次10 = 19:55-20:40
+PASS C18 | 默认节假日共 8 条（中秋1 + 国庆7）
+PASS C19 | 含 2026-09-25 中秋节
+PASS C20 | 含 2026-10-01~10-07 国庆节
+PASS H01 | hasClass 周一第3节 = true
+PASS H02 | hasClass 周一第1节 = false
+PASS H03 | hasClass 周二第7节 = true
+PASS H04 | holidayOf(2026-09-25) = 中秋节
+PASS H05 | holidayOf(2026-10-05) = 国庆节
+PASS H06 | holidayOf(2026-09-15) = null（非假日）
+PASS H07 | 节假日当天 hasClass = false（09-25 周五第1节本有课）
+PASS A01 | 「张X」在名单中索引 = 0
+PASS A02 | 病假 09-15 08:30~10:10 通过 → 命中第5周 Tuesday 第1、2节
+PASS A03 | 周二第1节 = ○
+PASS A04 | 周二第2节 = ○
+PASS A05 | 周二第5节未被误标
+PASS A06 | 其他学生（李四/王五）不被连带标记
+PASS A07 | 审批=驳回 → 不产生任何自动标记
+PASS A08 | 审批=不同意 → 不产生任何自动标记
+PASS A09 | 审批=待定 → 不产生任何自动标记
+PASS A10 | 日期改到 2026-09-25（中秋节）→ 不标记
+PASS A11 | 日期改到 2026-10-01（国庆）→ 不标记
+PASS A12 | 09-15 08:30~15:15 → 命中第1、2、5节
+PASS A13 | 第6周(09-22)的假不会串到第5周
+PASS A14 | 第6周(09-22)的假正确落在第6周
+PASS A15 | 请假人不在名单 → 不标记
+PASS A16 | 无课时段（周二第3节）→ 不标记
+PASS A17 | 仅覆盖课间(10:10~10:30) → 不标记任何节
+PASS A18 | 整周请假(09-14~09-18) → 命中全部 18 节有课单元格
+PASS A19 | 整周请假覆盖周一至周五
+PASS T01 | 写法A 完整起止 → start = 2026-09-17T08:30
+PASS T02 | 写法A 完整起止 → end   = 2026-09-17T13:40
+PASS T03 | 写法B 省略第二个日期 → start = 2026-09-17T08:30
+PASS T04 | 写法B 省略第二个日期 → end   = 2026-09-17T13:40
+PASS T05 | 写法C 纯日期区间 → start = 2026-09-17T00:00
+PASS T06 | 写法C 纯日期区间 → end   = 2026-09-18T23:59
+PASS T07 | 写法D 单个纯日期 → start = 2026-09-17T00:00
+PASS T08 | 写法D 单个纯日期 → end   = 2026-09-17T23:59
+PASS T09 | 写法E 中文年月日 → start = 2026-09-17T08:30
+PASS T10 | 写法E 中文年月日 → end   = 2026-09-17T13:40
+PASS T11 | 字段抽取：姓名 = 张三
+PASS T12 | 字段抽取：学号 = 2024TEST
+PASS T13 | 字段抽取：班级 = 24数学与应用数学2班
+PASS T14 | 字段抽取：学院 = 数据科学与信息工程学院
+PASS T15 | 字段抽取：类型 = 病假
+PASS T16 | 字段抽取：审批 = 通过
+PASS T17 | 字段抽取：天数 = 1
+PASS T18 | 审批=驳回 文本 → approve 归一为「驳回」
+PASS T19 | 纯日期请假(09-17 周四) → 命中第1、2、5、6节
+PASS M01 | 手动循环 空→○→+→—→Δ→空
+PASS M02 | 自动标记为 ○
+PASS M03 | 手动点1次 → +（覆盖自动 ○）
+PASS M04 | 手动点2次 → —
+PASS M05 | 手动点3次 → Δ
+PASS M06 | 手动点4次 → 空（手动显式清空，屏蔽自动 ○）
+PASS M07 | 手动点5次 → 回到 ○
+PASS M08 | 删除第2行后名单 = [甲,丙,丁]
+PASS M09 | 甲(原0)标记仍在第0行
+PASS M10 | 丙(原2)标记前移到第1行
+PASS M11 | 丁(原3)标记前移到第2行
+PASS M12 | 被删行(乙)的标记已清除
+PASS M13 | 无残留越界行索引
+PASS M14 | 标记总数 4 → 3
+PASS M15 | 删除首行后名单 = [乙,丙]
+PASS M16 | 删除首行后标记整体前移
+PASS M17 | 删除末行后名单 = [甲,乙]
+PASS M18 | 删除末行后其余标记不变
+PASS M19 | 删除末行后无残留
+PASS M20 | 删除前「丙」(idx2)被标记
+PASS M21 | 删除首行后自动标记随新索引重算到 idx1
+PASS S01 | 内联 JS 通过 node --check 语法校验
+PASS S02 | JS 中引用的 #id 均已在 HTML 中定义（共 60 个引用）
+PASS S03 | HTML 标签闭合平衡
+PASS S04 | 内联 JS 中无明显未定义的函数调用
+PASS S05 | CDN 引入 tesseract.js@5
+PASS S06 | CDN 引入 xlsx@0.18.5
+PASS S07 | 单文件：无本地外链 css/js
+PASS S08 | 考勤符号顺序 ["", "○", "+", "—", "Δ"]
+PASS S09 | SYMBOL_NAME 映射正确
+PASS S10 | 默认第1周周一 = 2026-08-17
+PASS S11 | 默认总周数 = 20
+PASS S12 | HTML 含注释行模板文案（A6-308）
+PASS B01 | 20 名学生 → 表格 20 行（非固定 15 行）
+PASS B02 | 6 名学生 → 表格 6 行
+PASS B03 | 空名单（0 人）渲染不抛异常
+PASS B04 | 空名单（0 人）→ 0 行
+PASS B05 | 名单 1 个空位 → 1 行
+PASS B06 | 名单20人 + 应到49人 → 49 行（保留手填空行）
+PASS B07 | 表头两行
+PASS B08 | 第一行含 5 个星期表头
+PASS B09 | 第二行含 50 个节次表头（5天×10节）
+PASS B10 | 表头含「负责人签字」
+PASS B11 | 表头含「序号」「姓名」
+PASS B12 | 每行 53 个单元格（1+1+50+1）
+PASS B13 | 标题含「上课考勤表」
+PASS B14 | 副标题含「第   5   周」
+PASS B15 | 副标题含 2026 年 09 月 14 日 ~ 09 月 18 日
+PASS B16 | 副标题含班级与人数
+PASS B17 | 渲染结果含 s-leave 样式（自动 ○ 已上色）
+PASS B18 | 渲染结果含 has-class 有课单元格
+PASS B19 | 特殊情况说明含请假记录
+PASS B20 | 第6周渲染含 holiday 单元格（09-25 中秋）
+PASS B21 | 第6周表头标注「中秋节放假」
+PASS B22 | 周下拉渲染 20 个选项
+PASS B23 | 第5周选项标签为 09-14 ~ 09-18
+PASS B24 | 学生姓名做 HTML 转义（防 XSS）
+PASS L01 | saveState 写入 localStorage
+PASS L02 | 回读学生名单
+PASS L03 | 回读当前周
+PASS L04 | 回读手动标记
+PASS L05 | 回读请假记录条数
+PASS L06 | 回读学期起始日
+PASS L07 | 回读课表条目数
+PASS L08 | localStorage 脏数据(JSON损坏) → 回退默认值不崩溃
+PASS L09 | 非法 week 被纠正为 1
+PASS L10 | null 名单回退 49 空行
+PASS L11 | 负数应到人数回退 49
+PASS E01 | exportExcel 执行无异常
+PASS E02 | exportExcel 生成了工作簿
+PASS E03 | Excel 行1 含「上课考勤表」
+PASS E04 | Excel 行2 含「第 5 周」与 2026 年 09 月 14 日 ~ 09 月 18 日
+PASS E05 | Excel 含学生「张X」
+PASS E06 | Excel 含学生「李四」
+PASS E07 | Excel 列数 = 53（序号+姓名+50节+签字）
+PASS E08 | 定位到「张X」数据行
+PASS E09 | 序号列 = 1
+PASS E10 | 第5周周二第1节 = ○
+PASS E11 | 第5周周二第2节 = ○
+PASS E12 | 第5周周二第5节 = 空（未误标）
+PASS E13 | 第5周周一第3节 = 空（非请假时段）
+PASS E14 | 未请假学生「李四」整行无标记
+PASS E15 | Excel 含注释行「注：考勤符号」
+PASS E16 | Excel 注释行含四种符号说明
+PASS E17 | Excel 含「负责人签字」
+PASS E18 | Excel 含「特殊情况说明」
+PASS E19 | Excel 含「班主任签字」「班委会签字」
+PASS E20 | Excel 已设置合并单元格
+PASS E21 | 手动标记「+」导出到 周三第5节
+PASS E22 | 导出的工作簿可序列化为合法 xlsx 字节流（>2KB）
+PASS E23 | 落盘再回读：周一第3节仍为 ○
+PASS E24 | 落盘再回读：合并单元格信息保留
+
+--------------------------------------------------
+通过率: 186/186 PASS (100.0%)
+
+IS_PASS=PASS

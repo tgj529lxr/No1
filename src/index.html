@@ -1,0 +1,1824 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>考勤表自动填写助手 · 贵州民族大学</title>
+
+<!-- ===== PWA / 移动端 ===== -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1d4ed8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="考勤">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+
+<!-- ===== 外部依赖（全部本地 vendor/，离线可用；加载失败时自动降级为纯手动模式） ===== -->
+<script src="vendor/tesseract/tesseract.min.js"></script>
+<script src="vendor/xlsx.full.min.js"></script>
+
+<style>
+/* ===================== 基础样式 ===================== */
+:root{
+  --bg:#f4f6f9;
+  --card:#ffffff;
+  --pri:#1d4ed8;
+  --pri-soft:#e8efff;
+  --bd:#dfe4ec;
+  --tx:#1f2937;
+  --mu:#6b7280;
+  --ok:#0f766e;
+  --warn:#b45309;
+  --err:#b91c1c;
+  --cell-cls:#f2f7ff;      /* 有课单元格底色 */
+  --cell-hol:#fff4ec;      /* 节假日单元格底色 */
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Helvetica Neue",Arial,sans-serif;
+  background:var(--bg);color:var(--tx);font-size:14px;line-height:1.5;
+  padding-bottom:calc(66px + env(safe-area-inset-bottom));
+}
+button{font-family:inherit;font-size:14px}
+
+/* ===================== 顶部栏 ===================== */
+.app-header{
+  position:sticky;top:0;z-index:30;background:var(--pri);color:#fff;
+  padding:10px 14px;display:flex;align-items:center;gap:10px;
+  padding-top:calc(10px + env(safe-area-inset-top));
+}
+.app-header h1{font-size:16px;margin:0;font-weight:600;flex:1;letter-spacing:.5px}
+.app-header .sub{font-size:11px;opacity:.85;font-weight:400;display:block;margin-top:2px}
+.refresh-tip{font-size:11px;background:rgba(255,255,255,.18);border-radius:10px;padding:2px 8px}
+
+/* ===================== 面板 / 卡片 ===================== */
+main{padding:12px}
+.panel{display:none}
+.panel.active{display:block}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:12px;margin-bottom:12px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+.card h2{font-size:14px;margin:0 0 10px;font-weight:600;display:flex;align-items:center;gap:6px}
+.card h2 .tag{font-size:11px;font-weight:400;color:var(--mu)}
+.hint{font-size:12px;color:var(--mu);margin:6px 0 0}
+
+/* ===================== 表单控件 ===================== */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:4px;
+  border:1px solid var(--bd);background:#fff;color:var(--tx);
+  border-radius:8px;padding:8px 12px;min-height:38px;cursor:pointer;
+}
+.btn:active{transform:scale(.98)}
+.btn.primary{background:var(--pri);border-color:var(--pri);color:#fff}
+.btn.danger{background:#fff;border-color:#fca5a5;color:var(--err)}
+.btn.sm{padding:4px 8px;min-height:28px;font-size:12px;border-radius:6px}
+.btn.block{display:flex;width:100%}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.row>*{flex:0 0 auto}
+.grow{flex:1 1 auto;min-width:0}
+
+input[type=text],input[type=number],input[type=date],input[type=time],input[type=datetime-local],select,textarea{
+  width:100%;font-family:inherit;font-size:14px;color:var(--tx);
+  border:1px solid var(--bd);border-radius:8px;padding:8px 10px;background:#fff;min-height:38px;
+}
+textarea{min-height:90px;resize:vertical;line-height:1.6}
+label.fld{display:block;margin-bottom:10px}
+label.fld>span{display:block;font-size:12px;color:var(--mu);margin-bottom:4px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
+
+/* ===================== OCR 区 ===================== */
+.ocr-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+#ocrProgress{height:6px;background:#eef2f7;border-radius:99px;overflow:hidden;margin-top:10px;display:none}
+#ocrProgress>i{display:block;height:100%;width:0;background:var(--pri);transition:width .2s}
+#ocrStatus{font-size:12px;color:var(--mu);margin-top:6px;min-height:18px}
+.dep-warn{background:#fff7ed;border:1px solid #fed7aa;color:var(--warn);border-radius:8px;padding:8px 10px;font-size:12px;margin-bottom:10px;display:none}
+
+/* ===================== 记录列表 ===================== */
+.leave-item{border:1px solid var(--bd);border-radius:10px;padding:10px;margin-bottom:8px;background:#fcfdff}
+.leave-item .name{font-weight:600;font-size:15px}
+.leave-item .meta{font-size:12px;color:var(--mu);margin-top:2px;word-break:break-all}
+.leave-item .acts{display:flex;gap:6px;margin-top:8px}
+.badge{display:inline-block;font-size:11px;padding:1px 7px;border-radius:99px;border:1px solid var(--bd);color:var(--mu);margin-left:6px}
+.badge.pass{background:#ecfdf5;border-color:#a7f3d0;color:var(--ok)}
+.badge.fail{background:#fef2f2;border-color:#fecaca;color:var(--err)}
+.badge.wait{background:#fffbeb;border-color:#fde68a;color:var(--warn)}
+.empty{color:var(--mu);font-size:13px;text-align:center;padding:18px 0}
+
+/* ===================== 考勤表 ===================== */
+.sheet-toolbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.sheet-wrap{background:#fff;border:1px solid var(--bd);border-radius:12px;padding:10px;overflow:auto;-webkit-overflow-scrolling:touch}
+.sheet-title{font-size:17px;font-weight:700;text-align:center;letter-spacing:1px;white-space:pre-wrap}
+.sheet-sub{font-size:12px;text-align:center;margin:6px 0 8px;white-space:pre-wrap;color:#374151}
+.att-table{border-collapse:collapse;font-size:12px;min-width:1560px;background:#fff}
+.att-table th,.att-table td{border:1px solid #9aa4b2;padding:3px 2px;text-align:center;vertical-align:middle}
+.att-table thead th{background:#eef2f8;font-weight:600;position:relative}
+.att-table .day-head{background:#dbe6f7}
+.att-table .p-head{background:#f4f7fc;font-weight:400;font-size:11px}
+.att-table .col-idx{width:42px;background:#f8fafc;position:sticky;left:0;z-index:2}
+.att-table .col-name{width:110px;background:#fff;position:sticky;left:42px;z-index:2}
+.att-table td.col-idx,.att-table td.col-name{position:sticky;z-index:2}
+.name-cell{display:flex;align-items:center;gap:2px}
+.name-cell input{border:0;background:transparent;padding:1px 2px;min-height:auto;font-size:12px;text-align:center;flex:1;width:auto}
+.row-del{border:0;background:#fee2e2;color:var(--err);border-radius:4px;width:18px;height:18px;line-height:16px;font-size:12px;padding:0;cursor:pointer;flex:0 0 auto}
+
+.cell{cursor:pointer;height:26px;font-size:13px;user-select:none}
+.cell.has-class{background:var(--cell-cls)}
+.cell.holiday{background:var(--cell-hol)}
+.cell.zero{visibility:hidden}
+.s-leave{color:#1d4ed8;font-weight:700}
+.s-late{color:#b45309;font-weight:700}
+.s-early{color:#7c3aed;font-weight:700}
+.s-absent{color:var(--err);font-weight:700}
+.hol-flag{display:block;font-size:10px;color:var(--warn);font-weight:600}
+.sheet-foot{font-size:11px;color:#374151;margin-top:8px;line-height:1.8}
+.sheet-foot .sign{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;border-top:1px dashed var(--bd);padding-top:6px;margin-top:6px}
+.legend{font-size:11px;color:var(--mu);margin-top:6px}
+
+/* ===================== 设置区 ===================== */
+.set-block{border-top:1px dashed var(--bd);padding-top:10px;margin-top:10px}
+.set-block:first-child{border-top:0;padding-top:0;margin-top:0}
+.set-block h3{font-size:13px;margin:0 0 8px}
+.sch-day{margin-bottom:10px}
+.sch-day .dtitle{font-size:12px;font-weight:600;color:var(--pri);margin-bottom:4px}
+.sch-item{display:flex;gap:4px;align-items:center;margin-bottom:4px}
+.sch-item .p{width:58px;flex:0 0 auto}
+.sch-item .c{flex:1 1 auto;min-width:0}
+.sch-item .l{width:96px;flex:0 0 auto}
+.sch-item input{min-height:32px;padding:5px 6px;font-size:12px}
+.per-row{display:flex;gap:6px;align-items:center;margin-bottom:4px;font-size:12px}
+.per-row .pn{width:44px;flex:0 0 auto;color:var(--mu)}
+.per-row input{min-height:32px;padding:5px 6px;font-size:12px}
+.hol-row{display:flex;gap:6px;align-items:center;margin-bottom:4px;font-size:12px}
+.hol-row input{min-height:32px;padding:5px 6px;font-size:12px}
+
+/* ===================== 底部 Tab ===================== */
+.tabbar{
+  position:fixed;left:0;right:0;bottom:0;z-index:40;display:flex;background:#fff;
+  border-top:1px solid var(--bd);padding-bottom:env(safe-area-inset-bottom);
+}
+.tabbar button{
+  flex:1;border:0;background:#fff;color:var(--mu);padding:8px 2px 7px;
+  display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;font-size:11px;
+}
+.tabbar button .ico{font-size:19px;line-height:1}
+.tabbar button.active{color:var(--pri);background:var(--pri-soft)}
+
+/* ===================== 弹窗 ===================== */
+.mask{position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:60;display:flex;align-items:center;justify-content:center;padding:12px}
+.mask[hidden]{display:none}
+.modal{background:#fff;border-radius:14px;width:100%;max-width:460px;max-height:88vh;overflow:auto;padding:14px}
+.modal h3{margin:0 0 10px;font-size:15px}
+.modal .f{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
+.modal .f label{display:block;margin-bottom:8px}
+.modal .f label span{display:block;font-size:12px;color:var(--mu);margin-bottom:3px}
+.modal-acts{display:flex;gap:8px;margin-top:10px}
+.modal-acts .btn{flex:1}
+.warn{background:#fffbeb;border:1px solid #fde68a;color:var(--warn);border-radius:8px;padding:8px 10px;font-size:12px;margin:8px 0;display:none}
+details{margin-top:8px}
+details summary{font-size:12px;color:var(--mu);cursor:pointer}
+details pre{background:#f8fafc;border:1px solid var(--bd);border-radius:8px;padding:8px;font-size:11px;max-height:160px;overflow:auto;white-space:pre-wrap;word-break:break-all}
+.toast{
+  position:fixed;left:50%;bottom:80px;transform:translateX(-50%);z-index:80;
+  background:rgba(17,24,39,.92);color:#fff;padding:9px 16px;border-radius:99px;font-size:13px;display:none;max-width:90vw;text-align:center;
+}
+
+/* ===================== 打印样式（A4 横向） ===================== */
+@media print{
+  @page{size:A4 landscape;margin:8mm}
+  html,body{background:#fff;padding:0;margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .app-header,.tabbar,.no-print,.panel:not(#panel-sheet),.modal,.mask,.toast{display:none!important}
+  main{padding:0}
+  #panel-sheet{display:block!important}
+  .sheet-wrap{overflow:visible!important;border:0;padding:0;border-radius:0}
+  .att-table{min-width:0!important;width:100%;font-size:7pt}
+  .att-table th,.att-table td{padding:1px 0;border:1px solid #666}
+  .att-table .col-idx,.att-table .col-name{position:static!important;width:auto}
+  .att-table .col-idx{width:18pt}
+  .att-table .col-name{width:46pt}
+  .name-cell input{font-size:7pt}
+  .cell{height:13pt;font-size:7pt}
+  .sheet-title{font-size:14pt}
+  .sheet-sub{font-size:9pt}
+  .sheet-foot{font-size:8pt}
+  .hol-flag{font-size:6pt}
+  .att-table .p-head{font-size:6pt}
+}
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <h1>考勤表自动填写助手
+    <span class="sub" id="hdrSub">贵州民族大学 · 数据科学与信息工程学院</span>
+  </h1>
+  <span class="refresh-tip" id="saveTip" style="display:none">已保存</span>
+</header>
+
+<main>
+  <!-- ========================= ① 识别请假条 ========================= -->
+  <section id="panel-ocr" class="panel active">
+    <div class="card">
+      <h2>① 识别请假条 <span class="tag">OCR 自动抽取字段</span></h2>
+      <div class="dep-warn" id="depWarn">OCR / Excel 依赖未加载成功（可能处于离线状态）。你可以直接使用下方「粘贴文字识别」或「手动填写」。</div>
+      <div class="ocr-actions">
+        <button class="btn primary" id="btnCam">📷 拍照识别</button>
+        <button class="btn" id="btnPick">🖼 从相册选择</button>
+      </div>
+      <!-- iOS Safari 会拒绝 display:none 的 file input，必须视觉隐藏而非 hidden -->
+      <input type="file" id="fileCam" accept="image/*" capture="environment"
+             style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none">
+      <input type="file" id="filePick" accept="image/*"
+             style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none">
+      <div id="ocrProgress"><i></i></div>
+      <div id="ocrStatus"></div>
+      <p class="hint">识别完成后会弹出核对表单，请务必确认姓名与时间无误后再保存。</p>
+    </div>
+
+    <div class="card">
+      <h2>粘贴文字识别 <span class="tag">OCR 不准时的备选方案</span></h2>
+      <textarea id="pasteText" placeholder="把请假条上的文字粘贴到这里，例如：&#10;姓名：张三  学号：2024xxxx&#10;学院：数据科学与信息工程学院  班级：24数学与应用数学2班&#10;请假类型：病假&#10;请假时间：2026-09-17 08:30 至 2026-09-17 13:40&#10;请假天数：1天&#10;审批结果：通过"></textarea>
+      <div class="row" style="margin-top:8px">
+        <button class="btn primary grow" id="btnParseText">识别文字</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>手动填写 <span class="tag">跳过识别</span></h2>
+      <button class="btn block" id="btnManual">✍ 直接打开核对表单</button>
+    </div>
+  </section>
+
+  <!-- ========================= ② 请假记录 ========================= -->
+  <section id="panel-leaves" class="panel">
+    <div class="card">
+      <h2>② 请假记录 <span class="tag" id="leaveCount"></span></h2>
+      <div id="leaveList"></div>
+      <button class="btn block" id="btnAddLeave" style="margin-top:8px">＋ 新增请假记录</button>
+      <p class="hint">仅「审批结果 = 通过」的记录会自动在考勤表上标记「○」。手动标记优先级高于自动标记。</p>
+    </div>
+  </section>
+
+  <!-- ========================= ③ 考勤表 ========================= -->
+  <section id="panel-sheet" class="panel">
+    <div class="card no-print">
+      <h2>③ 周选择</h2>
+      <div class="sheet-toolbar">
+        <button class="btn sm" id="btnPrevWeek">‹ 上一周</button>
+        <select id="weekSel" class="grow" style="width:auto"></select>
+        <button class="btn sm" id="btnNextWeek">下一周 ›</button>
+      </div>
+      <div class="row">
+        <input type="date" id="jumpDate" class="grow" style="width:auto">
+        <button class="btn sm" id="btnJump">跳转到该日期所在周</button>
+      </div>
+    </div>
+
+    <div class="card no-print">
+      <h2>操作</h2>
+      <div class="row">
+        <button class="btn primary" id="btnExport">📊 导出 Excel</button>
+        <button class="btn" id="btnPrint">🖨 打印</button>
+        <button class="btn danger" id="btnClearMarks">清空本周手动标记</button>
+      </div>
+      <p class="hint">点击有课单元格可循环切换：空 → ○请假 → +迟到 → —早退 → Δ旷课 → 空。</p>
+    </div>
+
+    <div class="sheet-wrap" id="sheetWrap">
+      <div class="sheet-title" id="sheetTitle"></div>
+      <div class="sheet-sub" id="sheetSub"></div>
+      <div id="tableHost"></div>
+      <div class="sheet-foot">
+        <div>注：考勤符号：请假"○"，迟到"+"，早退"—"旷课"Δ"。表格由班长汇总每周一周五上午交A6-308办公室。</div>
+        <div class="sign">
+          <span>班主任签字：____________________</span>
+          <span>班委会签字：____________________</span>
+        </div>
+        <div>特殊情况说明：<span id="specialNote"></span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================= ④ 设置 ========================= -->
+  <section id="panel-settings" class="panel">
+    <div class="card">
+      <h2>④ 基础设置</h2>
+      <div class="grid2">
+        <label class="fld"><span>学校</span><input type="text" id="setSchool"></label>
+        <label class="fld"><span>学院</span><input type="text" id="setCollege"></label>
+        <label class="fld"><span>班级</span><input type="text" id="setClass"></label>
+        <label class="fld"><span>应到人数</span><input type="number" id="setHeadcount" min="1" max="120"></label>
+        <label class="fld"><span>第1周周一（开学日期）</span><input type="date" id="setTermStart"></label>
+        <label class="fld"><span>学期总周数</span><input type="number" id="setWeeks" min="1" max="30"></label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>学生名单 <span class="tag">每行一个名字</span></h2>
+      <textarea id="setStudents" placeholder="张三&#10;李四&#10;..."></textarea>
+      <div class="row" style="margin-top:8px">
+        <button class="btn primary grow" id="btnApplyStudents">应用名单</button>
+        <button class="btn" id="btnFill49">重置为 49 行空名单</button>
+      </div>
+      <p class="hint">粘贴全班名单后点击「应用名单」，空名字行也会保留（便于打印后手填）。</p>
+    </div>
+
+    <div class="card">
+      <h2>节假日 <span class="tag">当天视为无课日</span></h2>
+      <div id="holList"></div>
+      <div class="row" style="margin-top:6px">
+        <input type="date" id="newHolDate" class="grow" style="width:auto">
+        <input type="text" id="newHolName" placeholder="节日名" class="grow" style="width:auto">
+        <button class="btn sm" id="btnAddHol">添加</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>作息节次 <span class="tag">用于判断请假命中哪些节</span></h2>
+      <div id="perList"></div>
+    </div>
+
+    <div class="card">
+      <h2>课表 <span class="tag">节次可写 3 / 5-6 / 1,2</span></h2>
+      <div id="schList"></div>
+    </div>
+
+    <div class="card">
+      <h2>OCR 识别参数 <span class="tag">识别不准时可切换</span></h2>
+      <div class="grid2">
+        <label class="fld"><span>版面模式（PSM）</span>
+          <select id="setPsm">
+            <option value="6">PSM 6 · 整块文字（默认）</option>
+            <option value="11">PSM 11 · 稀疏文字</option>
+          </select>
+        </label>
+        <label class="fld"><span>图像预处理</span>
+          <select id="setPreproc">
+            <option value="1">开启（灰度＋对比度拉伸）</option>
+            <option value="0">关闭（用原图）</option>
+          </select>
+        </label>
+      </div>
+      <p class="hint">打印体请假条用 PSM 6；手写/排版零散、识别结果缺失严重时改用 PSM 11。修改后立即生效于下一次识别。</p>
+    </div>
+
+    <div class="card">
+      <h2>数据管理</h2>
+      <div class="row">
+        <button class="btn" id="btnExportJson">导出数据备份(JSON)</button>
+        <button class="btn danger" id="btnReset">恢复默认设置</button>
+      </div>
+      <p class="hint">所有数据自动保存在本设备浏览器 localStorage 中，不会上传网络。</p>
+    </div>
+  </section>
+</main>
+
+<nav class="tabbar">
+  <button data-tab="ocr" class="active"><span class="ico">📷</span>识别</button>
+  <button data-tab="leaves"><span class="ico">📝</span>记录</button>
+  <button data-tab="sheet"><span class="ico">📋</span>考勤表</button>
+  <button data-tab="settings"><span class="ico">⚙</span>设置</button>
+</nav>
+
+<!-- ========================= 核对表单弹窗 ========================= -->
+<div class="mask" id="modal" hidden>
+  <div class="modal">
+    <h3 id="modalTitle">核对请假信息</h3>
+    <div id="modalWarn" class="warn"></div>
+    <div class="f">
+      <label><span>姓名 *</span><input type="text" id="fName"></label>
+      <label><span>学号</span><input type="text" id="fSid"></label>
+      <label><span>学院</span><input type="text" id="fCollege"></label>
+      <label><span>班级</span><input type="text" id="fClass"></label>
+      <label><span>请假类型</span>
+        <select id="fType">
+          <option>病假</option><option>事假</option><option>公假</option>
+          <option>婚假</option><option>丧假</option><option>产假</option><option>其他</option>
+        </select>
+      </label>
+      <label><span>审批结果</span>
+        <select id="fApprove"><option>通过</option><option>驳回</option><option>待定</option></select>
+      </label>
+      <label><span>开始时间 *</span><input type="datetime-local" id="fStart"></label>
+      <label><span>结束时间 *</span><input type="datetime-local" id="fEnd"></label>
+      <label><span>请假天数</span><input type="text" id="fDays"></label>
+    </div>
+    <details><summary>查看 OCR 原始文字</summary><pre id="fRaw"></pre></details>
+    <div class="modal-acts">
+      <button class="btn" id="fCancel">取消</button>
+      <button class="btn primary" id="fSave">保存并标记</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+/* =========================================================================
+ * 考勤表自动填写助手
+ * 模块划分：
+ *   1) 常量与默认数据      2) 工具函数       3) 状态存储
+ *   4) 周/日期/假期计算    5) 课表/节次匹配  6) 自动标记计算
+ *   7) 考勤表渲染          8) OCR 与字段抽取 9) 核对表单 / 记录管理
+ *  10) Excel 导出 / 打印  11) 设置面板      12) 初始化
+ * ========================================================================= */
+
+/* ===================== 1) 常量与默认数据 ===================== */
+const STORAGE_KEY = 'attendance_helper_state_v1';
+const WEEKDAY_LABELS = ['星期一','星期二','星期三','星期四','星期五','星期六','星期日'];
+const SYMBOLS = ['', '○', '+', '—', 'Δ'];          // 循环顺序：空→○→+→—→Δ→空
+const SYMBOL_CLASS = {'○':'s-leave', '+':'s-late', '—':'s-early', 'Δ':'s-absent'};
+const SYMBOL_NAME  = {'○':'请假', '+':'迟到', '—':'早退', 'Δ':'旷课'};
+const PERIOD_COUNT = 10;
+
+/** 深拷贝（仅用于普通对象/数组）。 */
+function clone(obj) {
+  return JSON.parse(JSON.stringify(obj));
+}
+
+/** 默认作息节次（贵州高校常见 10 节制）。 */
+function defaultPeriods() {
+  return [
+    {n:1,  start:'08:30', end:'09:15'},
+    {n:2,  start:'09:25', end:'10:10'},
+    {n:3,  start:'10:30', end:'11:15'},
+    {n:4,  start:'11:25', end:'12:10'},
+    {n:5,  start:'14:30', end:'15:15'},
+    {n:6,  start:'15:25', end:'16:10'},
+    {n:7,  start:'16:20', end:'17:05'},
+    {n:8,  start:'17:15', end:'18:00'},
+    {n:9,  start:'19:00', end:'19:45'},
+    {n:10, start:'19:55', end:'20:40'}
+  ];
+}
+
+/** 默认课表（第5周 2026/9/14-9/18 课表，键为星期 1~5）。 */
+function defaultSchedule() {
+  return {
+    1:[{p:'3',   course:'实变函数',                           place:'大学城南校区 A2-A203'},
+       {p:'5-6', course:'习近平新时代中国特色社会主义思想概论', place:'A2-D233'}],
+    2:[{p:'1-2', course:'大学物理实验A类（电磁学实验室2）',     place:'A11-A508'},
+       {p:'5',   course:'近世代数',                           place:'A2-A203'},
+       {p:'7',   course:'概率论',                             place:'A2-A203'}],
+    3:[{p:'3',   course:'实变函数',                           place:'A2-A203'},
+       {p:'5-6', course:'近世代数',                           place:'A2-A203'}],
+    4:[{p:'1-2', course:'大学物理b',                          place:'A2-B207'},
+       {p:'5-6', course:'习近平新时代中国特色社会主义思想概论', place:'A2-C122'}],
+    5:[{p:'1-2', course:'概率论',                             place:'A2-A203'},
+       {p:'3-4', course:'大学物理b',                          place:'A2-B207'}]
+  };
+}
+
+/** 默认节假日：中秋节 + 国庆节假期（符合贵州民族大学校历常见放假安排）。 */
+function defaultHolidays() {
+  const list = [{date:'2026-09-25', name:'中秋节'}];
+  const names = ['国庆节','国庆节','国庆节','国庆节','国庆节','国庆节','国庆节'];
+  for (let d = 1; d <= 7; d++) {
+    list.push({date:'2026-10-0' + d, name:names[d - 1]});
+  }
+  return list;
+}
+
+/** 默认完整状态。 */
+function defaultState() {
+  return {
+    school:    '贵州民族大学',
+    college:   '数据科学与信息工程学院',
+    className: '24数学与应用数学2班',
+    headcount: 49,
+    termStart: '2026-08-17',       // 第1周周一
+    weeks:     20,
+    students:  new Array(49).fill(''),
+    periods:   defaultPeriods(),
+    schedule:  defaultSchedule(),
+    holidays:  defaultHolidays(),
+    leaves:    [],
+    marks:     {},                 // { 'w5': { '0-1-3': '○' } }  weekKey -> cellKey -> symbol
+    week:      1,
+    ocrPsm:    '6',                // OCR 版面模式：'6' 整块文字 / '11' 稀疏文字
+    ocrPreproc: '1'                // 是否启用图像预处理：'1' 开 / '0' 关
+  };
+}
+
+/* ===================== 2) 工具函数 ===================== */
+const $  = function (sel) { return document.querySelector(sel); };
+const $$ = function (sel) { return Array.prototype.slice.call(document.querySelectorAll(sel)); };
+
+/** 补零成两位字符串。 */
+function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
+/** Date -> 'YYYY-MM-DD'。 */
+function fmtDate(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+
+/** 'YYYY-MM-DD' -> 本地时间 00:00 的 Date。 */
+function parseDate(s) {
+  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(String(s || '').trim());
+  if (!m) return null;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
+/** 日期字符串加/减天数，返回 'YYYY-MM-DD'。 */
+function addDays(dateStr, n) {
+  const d = parseDate(dateStr);
+  if (!d) return dateStr;
+  d.setDate(d.getDate() + Number(n));
+  return fmtDate(d);
+}
+
+/** 'YYYY-MM-DD' + 'HH:mm' -> Date。 */
+function toDateTime(dateStr, timeStr) {
+  const t = /^(\d{1,2}):(\d{2})$/.exec(String(timeStr || '00:00'));
+  const d = parseDate(dateStr);
+  if (!d) return null;
+  d.setHours(t ? Number(t[1]) : 0, t ? Number(t[2]) : 0, 0, 0);
+  return d;
+}
+
+/** 取星期几（1=周一 … 7=周日）。 */
+function dayOfWeek(dateStr) {
+  const d = parseDate(dateStr);
+  if (!d) return 1;
+  return d.getDay() === 0 ? 7 : d.getDay();
+}
+
+/** HTML 转义，防止名单/课程名破坏结构。 */
+function esc(s) {
+  return String(s === null || s === undefined ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/** 轻量 toast 提示。 */
+let toastTimer = null;
+function toast(msg) {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.style.display = 'block';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { el.style.display = 'none'; }, 2200);
+}
+
+/** 解析节次表达式：'3' / '5-6' / '1,2' / '1-2,7'。 */
+function parsePeriods(expr) {
+  const out = [];
+  String(expr || '').split(/[,，]/).forEach(function (part) {
+    const seg = part.trim();
+    if (!seg) return;
+    const range = /^(\d+)\s*[-~－—]\s*(\d+)$/.exec(seg);
+    if (range) {
+      const a = Number(range[1]), b = Number(range[2]);
+      for (let i = Math.min(a, b); i <= Math.max(a, b); i++) out.push(i);
+    } else if (/^\d+$/.test(seg)) {
+      out.push(Number(seg));
+    }
+  });
+  return out.filter(function (n) { return n >= 1 && n <= PERIOD_COUNT; });
+}
+
+/* ===================== 3) 状态存储 ===================== */
+let state = defaultState();
+
+/** 读取并规范化本地状态。 */
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return defaultState();
+    return normalizeState(JSON.parse(raw));
+  } catch (e) {
+    return defaultState();
+  }
+}
+
+/** 用默认值补齐缺失字段，兼容旧版本数据。 */
+function normalizeState(s) {
+  const d = defaultState();
+  if (!s || typeof s !== 'object') return d;
+  const out = Object.assign({}, d, s);
+  out.students = Array.isArray(s.students) && s.students.length
+    ? s.students.map(function (x) { return String(x || ''); }) : d.students;
+  out.periods  = Array.isArray(s.periods) && s.periods.length ? s.periods : d.periods;
+  out.schedule = (s.schedule && typeof s.schedule === 'object' && Object.keys(s.schedule).length)
+    ? s.schedule : d.schedule;
+  out.holidays = Array.isArray(s.holidays) ? s.holidays : d.holidays;
+  out.leaves   = Array.isArray(s.leaves) ? s.leaves : d.leaves;
+  out.marks    = (s.marks && typeof s.marks === 'object') ? s.marks : {};
+  out.headcount = Number(s.headcount) > 0 ? Number(s.headcount) : d.headcount;
+  out.weeks     = Number(s.weeks) > 0 ? Number(s.weeks) : d.weeks;
+  out.week      = Number(s.week) > 0 ? Number(s.week) : d.week;
+  out.ocrPsm    = String(s.ocrPsm) === '11' ? '11' : '6';
+  out.ocrPreproc = (s.ocrPreproc === '0' || s.ocrPreproc === 0 || s.ocrPreproc === false) ? '0' : '1';
+  return out;
+}
+
+/** 保存状态（带"已保存"提示）。 */
+let saveTimer = null;
+function saveState() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* 配额不足时静默 */ }
+  const tip = $('#saveTip');
+  if (tip) {
+    tip.style.display = 'inline-block';
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(function () { tip.style.display = 'none'; }, 1200);
+  }
+}
+
+/** 当前周的标记字典（惰性创建）。 */
+function weekMarks(week) {
+  const key = 'w' + week;
+  if (!state.marks[key]) state.marks[key] = {};
+  return state.marks[key];
+}
+
+/* ===================== 4) 周 / 日期 / 假期计算 ===================== */
+/** 第 week 周的周一日期字符串。 */
+function weekMonday(week) {
+  return addDays(state.termStart, (Number(week) - 1) * 7);
+}
+
+/** 第 week 周的周一~周日（7 天）信息数组。 */
+function weekDays(week) {
+  const mon = weekMonday(week);
+  const out = [];
+  for (let i = 0; i < 7; i++) {
+    const ds = addDays(mon, i);
+    out.push({ date: ds, dow: i + 1, label: WEEKDAY_LABELS[i] });
+  }
+  return out;
+}
+
+/** 根据日期反推周次（可能超出 1~weeks 范围）。 */
+function weekOfDate(dateStr) {
+  const d = parseDate(dateStr), s = parseDate(state.termStart);
+  if (!d || !s) return 1;
+  const diff = Math.floor((d.getTime() - s.getTime()) / 86400000);
+  return Math.floor(diff / 7) + 1;
+}
+
+/** 由今天推算当前周次（钳制在 1~weeks）。 */
+function currentWeek() {
+  const w = weekOfDate(fmtDate(new Date()));
+  return Math.min(state.weeks, Math.max(1, w));
+}
+
+/** 查询某日期是否为假期，返回节日名或 null。 */
+function holidayOf(dateStr) {
+  for (let i = 0; i < state.holidays.length; i++) {
+    if (state.holidays[i].date === dateStr) return state.holidays[i].name || '放假';
+  }
+  return null;
+}
+
+/* ===================== 5) 课表 / 节次匹配 ===================== */
+/** 构建「星期-节次」-> 课程条目 的索引。 */
+function buildScheduleMap() {
+  const map = {};
+  Object.keys(state.schedule).forEach(function (dow) {
+    (state.schedule[dow] || []).forEach(function (item) {
+      parsePeriods(item.p).forEach(function (p) { map[dow + '-' + p] = item; });
+    });
+  });
+  return map;
+}
+
+/** 取第 n 节的时间配置。 */
+function periodInfo(n) {
+  const arr = state.periods || defaultPeriods();
+  for (let i = 0; i < arr.length; i++) if (Number(arr[i].n) === Number(n)) return arr[i];
+  return { n: Number(n), start: '00:00', end: '23:59' };
+}
+
+/** 某天某节是否有课（节假日视为无课）。 */
+function hasClass(dateStr, dow, p, schMap) {
+  if (holidayOf(dateStr)) return false;
+  return !!(schMap || buildScheduleMap())[dow + '-' + p];
+}
+
+/* ===================== 6) 自动标记计算 ===================== */
+/** 名单中查找学生下标；未找到返回 -1。 */
+function findStudentIndex(name) {
+  const key = String(name || '').trim();
+  if (!key) return -1;
+  for (let i = 0; i < state.students.length; i++) {
+    if (String(state.students[i] || '').trim() === key) return i;
+  }
+  return -1;
+}
+
+/** 计算某周的自动标记：{ 'idx-dow-period': '○' }。 */
+function computeAutoMarks(week) {
+  const marks = {};
+  const days = weekDays(week);
+  const schMap = buildScheduleMap();
+  state.leaves.forEach(function (lv) {
+    if (String(lv.approve || '').trim() !== '通过') return;   // 非通过不自动标记
+    const idx = findStudentIndex(lv.name);
+    if (idx < 0) return;
+    const ls = toDateTime((lv.start || '').slice(0, 10), (lv.start || '').slice(11, 16));
+    let le = toDateTime((lv.end || '').slice(0, 10), (lv.end || '').slice(11, 16));
+    if (!ls || !le) return;
+    if (le.getTime() <= ls.getTime()) le = new Date(ls.getTime() + 60 * 1000);
+
+    days.forEach(function (day) {
+      for (let p = 1; p <= PERIOD_COUNT; p++) {
+        if (!hasClass(day.date, day.dow, p, schMap)) continue;
+        const pi = periodInfo(p);
+        const ps = toDateTime(day.date, pi.start);
+        const pe = toDateTime(day.date, pi.end);
+        // 请假区间与该节上课区间有重叠即命中
+        if (ls.getTime() < pe.getTime() && le.getTime() > ps.getTime()) {
+          marks[idx + '-' + day.dow + '-' + p] = '○';
+        }
+      }
+    });
+  });
+  return marks;
+}
+
+/** 取单元格最终符号：手动标记优先，其次自动标记。 */
+function getMark(week, idx, dow, p, autoMap) {
+  const key = idx + '-' + dow + '-' + p;
+  const manual = weekMarks(week);
+  if (Object.prototype.hasOwnProperty.call(manual, key)) return manual[key];
+  return (autoMap && autoMap[key]) || '';
+}
+
+/** 单元格循环切换符号。 */
+function cycleMark(idx, dow, p) {
+  const key = idx + '-' + dow + '-' + p;
+  const manual = weekMarks(state.week);
+  const auto = computeAutoMarks(state.week);
+  const cur = Object.prototype.hasOwnProperty.call(manual, key)
+    ? manual[key] : ((auto[key]) || '');
+  const next = SYMBOLS[(SYMBOLS.indexOf(cur) + 1) % SYMBOLS.length];
+  if (next === '' && !Object.prototype.hasOwnProperty.call(auto, key)) {
+    delete manual[key];
+  } else {
+    manual[key] = next;
+  }
+  saveState();
+  renderSheet();
+}
+
+/* ===================== 7) 考勤表渲染 ===================== */
+/** 渲染周选择下拉。 */
+function renderWeekSelect() {
+  const sel = $('#weekSel');
+  const html = [];
+  for (let w = 1; w <= state.weeks; w++) {
+    const ds = weekDays(w);
+    const label = '第 ' + w + ' 周（' + ds[0].date.slice(5) + ' ~ ' + ds[4].date.slice(5) + '）';
+    html.push('<option value="' + w + '"' + (w === state.week ? ' selected' : '') + '>' + esc(label) + '</option>');
+  }
+  sel.innerHTML = html.join('');
+}
+
+/** 生成考勤表 HTML 并挂到页面。 */
+function renderSheet() {
+  const week = state.week;
+  const days = weekDays(week);
+  const schMap = buildScheduleMap();
+  const auto = computeAutoMarks(week);
+  const mon = days[0].date, fri = days[4].date;
+
+  // ---- 标题与副标题（严格复刻模板两行） ----
+  $('#sheetTitle').textContent = '     ' + state.school + state.college + '上课考勤表';
+  const y = mon.slice(0, 4);
+  $('#sheetSub').textContent =
+    '第   ' + week + '   周        ' + y + '年　' + mon.slice(5, 7) + '　月　' + mon.slice(8, 10) +
+    '　日至　' + fri.slice(5, 7) + '　月　' + fri.slice(8, 10) + '　日            班级：' +
+    state.className + '             班级人数：' + state.headcount;
+
+  // ---- 表头 ----
+  const head = [];
+  head.push('<tr>');
+  head.push('<th class="col-idx" rowspan="2">序号</th>');
+  head.push('<th class="col-name" rowspan="2">姓名</th>');
+  days.slice(0, 5).forEach(function (d) {
+    const hol = holidayOf(d.date);
+    head.push('<th class="day-head" colspan="' + PERIOD_COUNT + '">' + d.label +
+      (hol ? '<span class="hol-flag">' + esc(hol) + '放假</span>' : '') + '</th>');
+  });
+  head.push('<th rowspan="2" style="width:60px">负责人签字</th>');
+  head.push('</tr>');
+
+  head.push('<tr class="p-head-row">');
+  days.slice(0, 5).forEach(function () {
+    for (let p = 1; p <= PERIOD_COUNT; p++) head.push('<th class="p-head">' + p + '</th>');
+  });
+  head.push('</tr>');
+
+  // ---- 数据行 ----
+  const body = [];
+  const rowCount = Math.max(state.students.length, Number(state.headcount) || 0);
+  for (let i = 0; i < rowCount; i++) {
+    const name = state.students[i] || '';
+    body.push('<tr>');
+    body.push('<td class="col-idx">' + (i + 1) + '</td>');
+    body.push('<td class="col-name"><div class="name-cell">' +
+      '<input type="text" class="name-input" data-idx="' + i + '" value="' + esc(name) + '" placeholder="姓名">' +
+      '<button class="row-del no-print" data-del="' + i + '" title="删除该行">×</button>' +
+      '</div></td>');
+    days.slice(0, 5).forEach(function (d) {
+      const hol = holidayOf(d.date);
+      for (let p = 1; p <= PERIOD_COUNT; p++) {
+        const cls = hasClass(d.date, d.dow, p, schMap);
+        const sym = getMark(week, i, d.dow, p, auto);
+        const classes = ['cell'];
+        if (cls) classes.push('has-class');
+        else if (hol) classes.push('holiday');
+        if (sym && SYMBOL_CLASS[sym]) classes.push(SYMBOL_CLASS[sym]);
+        body.push('<td class="' + classes.join(' ') + '" data-idx="' + i + '" data-dow="' + d.dow +
+          '" data-p="' + p + '" title="' +
+          esc(d.date + ' 第' + p + '节 ' + (cls ? schMap[d.dow + '-' + p].course : (hol ? '节假日' : '无课'))) +
+          '">' + (sym ? sym : '') + '</td>');
+      }
+    });
+    body.push('<td></td>');
+    body.push('</tr>');
+  }
+
+  const table = '<table class="att-table"><thead>' + head.join('') + '</thead><tbody>' +
+    body.join('') + '</tbody></table>';
+  $('#tableHost').innerHTML = table;
+
+  // ---- 特殊情况说明（本周请假 + 周末异常） ----
+  const notes = [];
+  state.leaves.forEach(function (lv) {
+    const s = (lv.start || '').slice(0, 10);
+    const e = (lv.end || '').slice(0, 10);
+    if (!s) return;
+    if (weekOfDate(s) === week || (e && weekOfDate(e) === week)) {
+      notes.push((lv.name || '未填写') + '：' + (lv.type || '') + ' ' + s + ' ' +
+        (lv.start || '').slice(11, 16) + '~' + (lv.end || '').slice(11, 16) +
+        '（' + (lv.approve || '待定') + '）');
+    }
+  });
+  [5, 6].forEach(function (i) {
+    const d = days[i];
+    const hol = holidayOf(d.date);
+    if (hol) notes.push(d.label + '(' + d.date + ') 为' + hol + '假期');
+  });
+  notes.push('本表仅输出周一至周五主表；周六/周日课程或异常请在特殊情况说明中手工补充。');
+  $('#specialNote').textContent = notes.join('；');
+
+  $('#hdrSub').textContent = state.school + ' ' + state.college + ' · ' + state.className;
+}
+
+/* ===================== 8) OCR 与字段抽取 ===================== */
+/** 全角/异体字符归一化，便于正则匹配。 */
+function normalizeText(t) {
+  return String(t || '')
+    .replace(/[\uFF10-\uFF19]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })
+    .replace(/[：]/g, ':')
+    .replace(/[（）]/g, function (c) { return c === '（' ? '(' : ')'; })
+    .replace(/[～~－—–]/g, '~')
+    .replace(/\u00A0/g, ' ')
+    .replace(/[ \t]+/g, ' ');
+}
+
+/** 抓第一个匹配的正则分组。 */
+function grab(re, text) {
+  const m = re.exec(text);
+  return m ? String(m[1]).trim() : '';
+}
+
+/**
+ * 从文本中抽取请假条字段。
+ * @param {string} rawText 原始 OCR 文本
+ * @returns {Object} 抽取出的字段对象
+ */
+function extractFields(rawText) {
+  const t = normalizeText(rawText);
+  const f = { name:'', sid:'', college:state.college, className:state.className,
+              type:'事假', start:'', end:'', days:'', approve:'通过', raw:rawText };
+
+  // 姓名：优先"姓名：xxx"，其次"申请人/学生"
+  f.name = grab(/姓\s*名\s*[: ]\s*([^\s,，:：。;；\n]{2,8})/, t) ||
+           grab(/(?:申请人|学生姓名|请假人)\s*[: ]\s*([^\s,，:：。;；\n]{2,8})/, t);
+  // 去除 OCR 连排时误带入的后续字段名（如"张三学号"）
+  if (f.name) {
+    f.name = f.name.replace(/[:：]$/, '')
+      .replace(/(学号|学院|班级|专业|性别|请假类型|请假时间|请假事由|请假天数|电话|联系方式|天数).*$/, '')
+      .trim();
+  }
+
+  // 学号
+  f.sid = grab(/学\s*号\s*[: ]\s*([A-Za-z0-9]{4,20})/, t);
+
+  // 学院 / 班级
+  f.college   = grab(/(?:学院|所在学院|院系)\s*[: ]\s*([\u4e00-\u9fa5]{2,20}(?:学院|系))/, t) || f.college;
+  f.className = grab(/(?:班级|专业班级|所在班级)\s*[: ]\s*([\u4e00-\u9fa5A-Za-z0-9]{2,24}班?)/, t) || f.className;
+
+  // 请假类型
+  const typeHit = grab(/(?:请假类型|假别|请假事由类型|类型)\s*[: ]\s*([^\s,，。;；\n]{2,6})/, t) ||
+                  grab(/((?:病假|事假|公假|婚假|丧假|产假|社会实践假|实习假))/, t);
+  if (typeHit) f.type = typeHit;
+
+  // 审批结果
+  const ap = /((?:不?予?(?:批准|通过))|(?:同意|批准|已批准|通过|驳回|不同意|未通过|不予批准))/.exec(t);
+  if (ap) {
+    const v = ap[1];
+    f.approve = /驳回|不同意|未通过|不予/.test(v) ? '驳回' : '通过';
+  } else {
+    f.approve = '通过';   // 未识别到时默认通过，核对表单中可修改
+  }
+
+  // 请假天数
+  f.days = grab(/(?:请假天数|天数)\s*[: ]\s*([0-9]+(?:\.[0-9]+)?|[\u4e00-\u9fa5]{1,4})\s*(?:天|日)?/, t);
+
+  // 请假时间：抓取文本中所有日期时间片段
+  parseLeaveRange(t, f);
+  return f;
+}
+
+/**
+ * 解析请假起止时间，写回 f.start / f.end（'YYYY-MM-DDTHH:mm' 格式）。
+ * @param {string} t 归一化后的文本
+ * @param {Object} f 字段对象（原地修改）
+ */
+function parseLeaveRange(t, f) {
+  const fallbackYear = String(new Date().getFullYear());
+  // 只在"时间"字样附近搜索，避免误抓学号等长数字
+  const scope = /(?:请假时间|起止时间|请假期限|期限|时间)[^。\n]{0,160}/.exec(t);
+  const searchIn = scope ? scope[0] : t;
+
+  // ① 抓取「日期 + 可选时间」片段，如 2026-09-17 08:30 / 9月17日
+  const dtRe = /(20\d{2})?\s*[\-/年.]?\s*(\d{1,2})\s*[\-/月.]\s*(\d{1,2})\s*[日号]?(?:\s*(?:(\d{1,2})\s*[:时]\s*(\d{2})(?:\s*分)?))?/g;
+  const dts = [];
+  let m = null;
+  while (dts.length < 2 && (m = dtRe.exec(searchIn)) !== null) {
+    dts.push({
+      y:  m[1] || fallbackYear,
+      mo: pad2(Number(m[2])),
+      d:  pad2(Number(m[3])),
+      hm: (m[4] === undefined) ? null : (pad2(Number(m[4])) + ':' + m[5])
+    });
+  }
+
+  // ② 抓取纯时间片段，如 08:30、13:40（用于处理"08:30~13:40"省略日期的写法）
+  const tmRe = /(\d{1,2})\s*[:：]\s*(\d{2})/g;
+  const tms = [];
+  while (tms.length < 4 && (m = tmRe.exec(searchIn)) !== null) {
+    tms.push(pad2(Number(m[1])) + ':' + m[2]);
+  }
+
+  if (dts.length === 0) { f.start = ''; f.end = ''; return; }
+
+  const first = dts[0];
+  const startHM = first.hm || (tms.length ? tms[0] : '00:00');
+  const startDate = first.y + '-' + first.mo + '-' + first.d;
+  f.start = startDate + 'T' + startHM;
+
+  let endDate = startDate;
+  let endHM = null;
+  if (dts.length >= 2) {
+    // 两个完整日期：第二段缺省时间时按当日 23:59 处理
+    const second = dts[1];
+    endDate = second.y + '-' + second.mo + '-' + second.d;
+    endHM = second.hm || '23:59';
+  } else {
+    // 只有一个日期：若同段出现第二个时间（08:30~13:40），以它为结束时间
+    const idx = tms.indexOf(startHM);
+    if (idx >= 0 && tms[idx + 1]) {
+      endHM = tms[idx + 1];
+    } else if (tms.length >= 2) {
+      endHM = tms[tms.length - 1];
+    } else {
+      endHM = first.hm ? '20:40' : '23:59';   // 兜底：当天最后一节课结束 / 整天
+    }
+  }
+  f.end = endDate + 'T' + endHM;
+}
+
+/* ===================== OCR 图像预处理（Canvas 手写，无第三方依赖） ===================== */
+
+/** OCR 预处理配置：长边上限 1600px，1%/99% 分位裁剪的线性对比度拉伸。 */
+const OCR_MAX_EDGE   = 1600;
+const OCR_CLIP_RATIO = 0.01;
+
+/**
+ * 把任意图片源解码为 ImageBitmap / HTMLImageElement。
+ * @param {Blob|File} source 原始图片
+ * @returns {Promise<{w:number,h:number,draw:function(CanvasRenderingContext2D):void}>}
+ */
+async function decodeImage(source) {
+  if (typeof createImageBitmap === 'function') {
+    const bmp = await createImageBitmap(source);
+    return {
+      w: bmp.width,
+      h: bmp.height,
+      draw: function (ctx) { ctx.drawImage(bmp, 0, 0); },
+      close: function () { if (bmp && typeof bmp.close === 'function') bmp.close(); }
+    };
+  }
+  // 兼容无 createImageBitmap 的环境（旧 Safari）
+  const url = URL.createObjectURL(source);
+  try {
+    const img = await new Promise(function (resolve, reject) {
+      const el = new Image();
+      el.onload = function () { resolve(el); };
+      el.onerror = function () { reject(new Error('图片解码失败')); };
+      el.src = url;
+    });
+    return {
+      w: img.naturalWidth || img.width,
+      h: img.naturalHeight || img.height,
+      draw: function (ctx) { ctx.drawImage(img, 0, 0); },
+      close: function () { /* noop */ }
+    };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/**
+ * 计算灰度直方图的低/高分位，用于线性对比度拉伸。
+ * @param {Uint8ClampedArray} data RGBA 像素
+ * @param {number} total 像素总数
+ * @returns {{lo:number,hi:number}} 1% / 99% 分位灰度
+ */
+function grayPercentiles(data, total) {
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < data.length; i += 4) {
+    const g = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114) | 0;
+    hist[g]++;
+  }
+  const loCount = total * OCR_CLIP_RATIO;
+  const hiCount = total * (1 - OCR_CLIP_RATIO);
+  let acc = 0, lo = 0, hi = 255;
+  for (let g = 0; g < 256; g++) {
+    acc += hist[g];
+    if (acc >= loCount) { lo = g; break; }
+  }
+  acc = 0;
+  for (let g = 0; g < 256; g++) {
+    acc += hist[g];
+    if (acc >= hiCount) { hi = g; break; }
+  }
+  if (hi <= lo) { lo = 0; hi = 255; }
+  return { lo: lo, hi: hi };
+}
+
+/**
+ * 图像预处理：长边缩放 ≤1600px → 灰度化 → 线性对比度拉伸 → 输出 PNG Blob。
+ * 任一步失败时回退为原始文件，保证识别流程不中断。
+ * @param {Blob|File} file 原始图片文件
+ * @returns {Promise<Blob>} 处理后的 PNG（或原文件）
+ */
+async function preprocessImage(file) {
+  const src = await decodeImage(file);
+  let canvas = null;
+  try {
+    const scale = Math.min(1, OCR_MAX_EDGE / Math.max(src.w, src.h));
+    const w = Math.max(1, Math.round(src.w * scale));
+    const h = Math.max(1, Math.round(src.h * scale));
+
+    canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return file;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, w, h);
+    src.draw(ctx);
+
+    const img = ctx.getImageData(0, 0, w, h);
+    const data = img.data;
+    const pct = grayPercentiles(data, w * h);
+    const span = pct.hi - pct.lo;
+    const lut = new Uint8Array(256);
+    for (let g = 0; g < 256; g++) {
+      const v = span > 0 ? (g - pct.lo) * 255 / span : g;
+      lut[g] = v < 0 ? 0 : (v > 255 ? 255 : v);
+    }
+    for (let i = 0; i < data.length; i += 4) {
+      const g = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114) | 0;
+      const v = lut[g];
+      data[i] = v; data[i + 1] = v; data[i + 2] = v; data[i + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+
+    const blob = await new Promise(function (resolve) {
+      if (typeof canvas.toBlob === 'function') {
+        canvas.toBlob(function (b) { resolve(b); }, 'image/png');
+      } else {
+        resolve(null);
+      }
+    });
+    return blob || file;
+  } catch (e) {
+    return file;
+  } finally {
+    if (src && typeof src.close === 'function') src.close();
+    if (canvas) { canvas.width = 1; canvas.height = 1; }   // 及时释放大画布
+  }
+}
+
+/**
+ * 执行 OCR 识别（离线引擎：本地 worker + 本地 wasm + 本地语言包）。
+ * 四个阶段分别捕获：引擎加载 / 模型加载 / 图片处理 / 识别。
+ * @param {File} file 用户选择的图片
+ * @returns {Promise<void>}
+ */
+async function runOcr(file) {
+  const status = document.querySelector('#ocrStatus');
+  const bar = document.querySelector('#ocrProgress');
+  if (!status) return;
+
+  if (typeof Tesseract === 'undefined') {
+    status.textContent = 'OCR 引擎未加载（vendor/tesseract/tesseract.min.js 缺失或离线不可用），请改用「粘贴文字识别」或「手动填写」。';
+    const warn = document.querySelector('#depWarn');
+    if (warn) warn.style.display = 'block';
+    return;
+  }
+
+  const psm = Number(state.ocrPsm) === 11 ? '11' : '6';
+  const usePre = state.ocrPreproc !== false && state.ocrPreproc !== 0 && state.ocrPreproc !== '0';
+
+  bar.style.display = 'block';
+  bar.firstElementChild.style.width = '5%';
+  status.textContent = '正在加载 OCR 引擎…';
+  let worker = null;
+  let image = file;
+
+  try {
+    // ---- 阶段 1：图片预处理（失败则回退原图，不阻断流程） ----
+    if (usePre) {
+      try {
+        status.textContent = '正在预处理图片…';
+        image = await preprocessImage(file);
+        bar.firstElementChild.style.width = '12%';
+      } catch (e) {
+        image = file;
+        status.textContent = '图片处理失败，改用原图继续识别…';
+      }
+    }
+
+    // ---- 阶段 2：引擎 + 模型加载 ----
+    status.textContent = '正在加载 OCR 引擎与中文识别模型（首次较慢）…';
+    try {
+      worker = await Tesseract.createWorker('chi_sim', 1, {
+        workerPath: 'vendor/tesseract/worker.min.js',
+        corePath:   'vendor/tesseract/core',   // 目录，由 tesseract.js 自行探测 simd/relaxedsimd
+        langPath:   'vendor/tessdata',         // 目录下含 chi_sim.traineddata.gz
+        logger: function (m) {
+          if (m && m.status) {
+            status.textContent = m.status + (m.progress ? ' ' + Math.round(m.progress * 100) + '%' : '');
+            if (m.progress) {
+              bar.firstElementChild.style.width = Math.round(Math.max(0.05, m.progress) * 100) + '%';
+            }
+          }
+        }
+      });
+    } catch (e) {
+      bar.firstElementChild.style.width = '0%';
+      status.textContent = 'OCR 引擎/模型加载失败：' + (e && e.message ? e.message : '未知错误') +
+        '。请确认 vendor 目录已随应用一起部署；你仍可使用「粘贴文字识别」或「手动填写」。';
+      return;
+    }
+
+    // ---- 阶段 3：参数设置 ----
+    try {
+      await worker.setParameters({
+        tessedit_pageseg_mode: psm,
+        user_defined_dpi: '300'
+      });
+    } catch (e) {
+      /* 参数不支持时不影响识别，继续 */
+    }
+
+    // ---- 阶段 4：识别 ----
+    status.textContent = '正在识别文字…';
+    let ret = null;
+    try {
+      ret = await worker.recognize(image);
+    } catch (e) {
+      status.textContent = '识别失败：' + (e && e.message ? e.message : '未知错误') +
+        '。可到「设置 → OCR 识别参数」切换 PSM 后重试，或改用「粘贴文字识别」。';
+      return;
+    }
+
+    const text = (ret && ret.data && ret.data.text) || '';
+    bar.firstElementChild.style.width = '100%';
+    status.textContent = text.trim()
+      ? '识别完成（PSM ' + psm + '），请核对下方信息。'
+      : '识别结束但未读到文字。请换更清晰的照片，或改用「粘贴文字识别」「手动填写」。';
+    openConfirmForm(extractFields(text), -1);
+  } catch (e) {
+    status.textContent = '识别过程异常：' + (e && e.message ? e.message : '未知错误') +
+      '。请改用「粘贴文字识别」或「手动填写」。';
+  } finally {
+    if (worker) {
+      try { await worker.terminate(); } catch (e) { /* ignore */ }
+    }
+  }
+}
+
+/* ===================== 9) 核对表单 / 请假记录 ===================== */
+let editingLeaveId = -1;
+
+/** 打开核对/编辑表单。 */
+function openConfirmForm(fields, id) {
+  editingLeaveId = (id === undefined || id === null) ? -1 : id;
+  const f = fields || {};
+  $('#modalTitle').textContent = editingLeaveId >= 0 ? '编辑请假记录' : '核对请假信息';
+  $('#fName').value    = f.name || '';
+  $('#fSid').value     = f.sid || '';
+  $('#fCollege').value = f.college || state.college;
+  $('#fClass').value   = f.className || state.className;
+  $('#fType').value    = f.type || '事假';
+  $('#fApprove').value = f.approve || '通过';
+  $('#fStart').value   = f.start || '';
+  $('#fEnd').value     = f.end || '';
+  $('#fDays').value    = f.days || '';
+  $('#fRaw').textContent = f.raw || '（无）';
+
+  const warn = $('#modalWarn');
+  const tips = [];
+  if (!f.name) tips.push('未能识别到「姓名」，请手动填写。');
+  if (!f.start || !f.end) tips.push('未能识别到完整的「请假时间」，请手动填写起止时间。');
+  if (f.name && findStudentIndex(f.name) < 0) tips.push('名单中未找到「' + f.name + '」，保存后不会自动标记，请先到「设置 → 学生名单」补齐。');
+  if (tips.length) { warn.innerHTML = tips.join('<br>'); warn.style.display = 'block'; }
+  else { warn.style.display = 'none'; }
+
+  $('#modal').hidden = false;
+}
+
+/** 关闭核对表单。 */
+function closeConfirmForm() { $('#modal').hidden = true; editingLeaveId = -1; }
+
+/** 保存核对表单中的请假记录。 */
+function saveLeaveFromForm() {
+  const name = $('#fName').value.trim();
+  const start = $('#fStart').value;
+  const end = $('#fEnd').value;
+  if (!name) { toast('请填写姓名'); return; }
+  if (!start || !end) { toast('请填写请假起止时间'); return; }
+  if (new Date(end).getTime() <= new Date(start).getTime()) { toast('结束时间必须晚于开始时间'); return; }
+
+  const rec = {
+    id: editingLeaveId >= 0 ? editingLeaveId : Date.now(),
+    name: name,
+    sid: $('#fSid').value.trim(),
+    college: $('#fCollege').value.trim(),
+    className: $('#fClass').value.trim(),
+    type: $('#fType').value,
+    start: start,
+    end: end,
+    days: $('#fDays').value.trim(),
+    approve: $('#fApprove').value,
+    raw: $('#fRaw').textContent === '（无）' ? '' : $('#fRaw').textContent
+  };
+
+  if (editingLeaveId >= 0) {
+    for (let i = 0; i < state.leaves.length; i++) {
+      if (state.leaves[i].id === editingLeaveId) { state.leaves[i] = rec; break; }
+    }
+  } else {
+    state.leaves.push(rec);
+  }
+  saveState();
+  closeConfirmForm();
+  renderLeaves();
+  renderSheet();
+  toast('已保存，考勤表已联动更新');
+  switchTab('sheet');
+}
+
+/** 渲染请假记录列表。 */
+function renderLeaves() {
+  const host = $('#leaveList');
+  $('#leaveCount').textContent = '共 ' + state.leaves.length + ' 条';
+  if (!state.leaves.length) { host.innerHTML = '<div class="empty">暂无请假记录</div>'; return; }
+  const html = state.leaves.map(function (lv) {
+    const cls = lv.approve === '通过' ? 'pass' : (lv.approve === '驳回' ? 'fail' : 'wait');
+    return '<div class="leave-item">' +
+      '<div class="name">' + esc(lv.name || '未填写') +
+        '<span class="badge ' + cls + '">' + esc(lv.approve || '待定') + '</span>' +
+        '<span class="badge">' + esc(lv.type || '') + '</span></div>' +
+      '<div class="meta">' + esc((lv.start || '').replace('T', ' ')) + ' ~ ' + esc((lv.end || '').replace('T', ' ')) +
+        (lv.days ? '　共 ' + esc(lv.days) + ' 天' : '') + '</div>' +
+      '<div class="meta">' + esc(lv.className || '') + '　学号 ' + esc(lv.sid || '—') + '</div>' +
+      '<div class="acts"><button class="btn sm" data-edit="' + lv.id + '">编辑</button>' +
+      '<button class="btn sm danger" data-remove="' + lv.id + '">删除</button></div>' +
+      '</div>';
+  });
+  host.innerHTML = html.join('');
+}
+
+/* ===================== 10) Excel 导出 / 打印 ===================== */
+/** 导出当前周的考勤表为 xlsx（尽量复刻模板结构）。 */
+function exportExcel() {
+  if (typeof XLSX === 'undefined') {
+    toast('Excel 组件未加载，无法导出');
+    $('#depWarn').style.display = 'block';
+    return;
+  }
+  const week = state.week;
+  const days = weekDays(week);
+  const schMap = buildScheduleMap();
+  const auto = computeAutoMarks(week);
+  const COLS = 2 + 5 * PERIOD_COUNT + 1;          // 序号 + 姓名 + 50 + 负责人签字
+  const lastCol = COLS - 1;
+
+  const aoa = [];
+  const blankRow = function () { return new Array(COLS).fill(''); };
+
+  // 行1：标题
+  const r1 = blankRow(); r1[0] = '     ' + state.school + state.college + '上课考勤表'; aoa.push(r1);
+  // 行2：周次 / 日期 / 班级 / 人数
+  const mon = days[0].date, fri = days[4].date;
+  const r2 = blankRow();
+  r2[0] = '第   ' + week + '   周        ' + mon.slice(0, 4) + '年　' + mon.slice(5, 7) + '　月　' +
+          mon.slice(8, 10) + '　日至　' + fri.slice(5, 7) + '　月　' + fri.slice(8, 10) +
+          '　日            班级：' + state.className + '             班级人数：' + state.headcount;
+  aoa.push(r2);
+  // 行3：星期分组
+  const r3 = blankRow(); r3[0] = '序号'; r3[1] = '姓名'; r3[lastCol] = '负责人签字';
+  for (let d = 0; d < 5; d++) {
+    const hol = holidayOf(days[d].date);
+    r3[2 + d * PERIOD_COUNT] = days[d].label + (hol ? '（' + hol + '放假）' : '');
+  }
+  aoa.push(r3);
+  // 行4：节次编号
+  const r4 = blankRow();
+  for (let d = 0; d < 5; d++) for (let p = 1; p <= PERIOD_COUNT; p++) r4[2 + d * PERIOD_COUNT + (p - 1)] = p;
+  aoa.push(r4);
+  // 数据行
+  const rowCount = Math.max(state.students.length, Number(state.headcount) || 0);
+  for (let i = 0; i < rowCount; i++) {
+    const row = blankRow();
+    row[0] = i + 1;
+    row[1] = state.students[i] || '';
+    for (let d = 0; d < 5; d++) {
+      for (let p = 1; p <= PERIOD_COUNT; p++) {
+        row[2 + d * PERIOD_COUNT + (p - 1)] = getMark(week, i, days[d].dow, p, auto);
+      }
+    }
+    aoa.push(row);
+  }
+  const after = aoa.length;   // 数据结束的行号（0-based）
+  // 注释行
+  const rn = blankRow();
+  rn[0] = '注：考勤符号：请假"○"，迟到"+"，早退"—"旷课"Δ"。表格由班长汇总每周一周五上午交A6-308办公室。';
+  aoa.push(rn);
+  // 班主任签字 / 特殊情况说明
+  const rs = blankRow(); rs[0] = '班主任签字：'; rs[25] = '特殊情况说明：' + $('#specialNote').textContent;
+  aoa.push(rs);
+  // 班委会签字
+  const rc = blankRow(); rc[0] = '班委会签字：'; aoa.push(rc);
+
+  // ---- 合并单元格 ----
+  const merges = [
+    {s:{r:0, c:0}, e:{r:0, c:lastCol}},
+    {s:{r:1, c:0}, e:{r:1, c:lastCol}},
+    {s:{r:2, c:0}, e:{r:3, c:0}},
+    {s:{r:2, c:1}, e:{r:3, c:1}},
+    {s:{r:2, c:lastCol}, e:{r:3, c:lastCol}}
+  ];
+  for (let d = 0; d < 5; d++) {
+    merges.push({s:{r:2, c:2 + d * PERIOD_COUNT}, e:{r:2, c:2 + d * PERIOD_COUNT + PERIOD_COUNT - 1}});
+  }
+  merges.push({s:{r:after, c:0}, e:{r:after, c:lastCol}});          // 注释行
+  merges.push({s:{r:after + 1, c:0}, e:{r:after + 1, c:24}});        // 班主任签字
+  merges.push({s:{r:after + 1, c:25}, e:{r:after + 1, c:lastCol}});  // 特殊情况说明
+  merges.push({s:{r:after + 2, c:0}, e:{r:after + 2, c:lastCol}});   // 班委会签字
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!merges'] = merges;
+  const cols = [];
+  cols[0] = {wch: 5};
+  cols[1] = {wch: 12};
+  for (let d = 0; d < 5; d++) for (let p = 1; p <= PERIOD_COUNT; p++) cols[2 + d * PERIOD_COUNT + (p - 1)] = {wch: 3.6};
+  cols[lastCol] = {wch: 10};
+  ws['!cols'] = cols;
+  ws['!rows'] = [{hpt: 26}, {hpt: 22}];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+  const fname = '考勤表_第' + week + '周_' + state.className + '_' + mon + '至' + fri + '.xlsx';
+  XLSX.writeFile(wb, fname);
+  toast('已导出 ' + fname);
+}
+
+/* ===================== 11) 设置面板 ===================== */
+/** 用当前状态填充设置面板。 */
+function renderSettings() {
+  $('#setSchool').value = state.school;
+  $('#setCollege').value = state.college;
+  $('#setClass').value = state.className;
+  $('#setHeadcount').value = state.headcount;
+  $('#setTermStart').value = state.termStart;
+  $('#setWeeks').value = state.weeks;
+  $('#setStudents').value = state.students.join('\n');
+  const psm = document.querySelector('#setPsm');
+  if (psm) psm.value = String(state.ocrPsm) === '11' ? '11' : '6';
+  const pre = document.querySelector('#setPreproc');
+  if (pre) pre.value = state.ocrPreproc === '0' ? '0' : '1';
+  renderHolidayEditor();
+  renderPeriodEditor();
+  renderScheduleEditor();
+}
+
+/** 渲染节假日编辑器。 */
+function renderHolidayEditor() {
+  const host = $('#holList');
+  const list = state.holidays.slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+  host.innerHTML = list.length
+    ? list.map(function (h) {
+        return '<div class="hol-row"><span style="flex:1">' + esc(h.date) + '　' + esc(h.name) + '</span>' +
+          '<button class="btn sm danger" data-holdel="' + esc(h.date) + '">删除</button></div>';
+      }).join('')
+    : '<div class="empty">暂无节假日设置</div>';
+}
+
+/** 渲染作息节次编辑器。 */
+function renderPeriodEditor() {
+  const host = $('#perList');
+  host.innerHTML = state.periods.map(function (p, i) {
+    return '<div class="per-row"><span class="pn">节' + p.n + '</span>' +
+      '<input type="time" data-peri="' + i + '" data-perf="start" value="' + esc(p.start) + '">' +
+      '<span>~</span>' +
+      '<input type="time" data-peri="' + i + '" data-perf="end" value="' + esc(p.end) + '"></div>';
+  }).join('');
+}
+
+/** 渲染课表编辑器。 */
+function renderScheduleEditor() {
+  const host = $('#schList');
+  const html = [];
+  for (let dow = 1; dow <= 5; dow++) {
+    html.push('<div class="sch-day"><div class="dtitle">' + WEEKDAY_LABELS[dow - 1] + '</div>');
+    const items = state.schedule[dow] || [];
+    items.forEach(function (it, i) {
+      html.push('<div class="sch-item">' +
+        '<input class="p" type="text" data-sch="' + dow + '|' + i + '|p" value="' + esc(it.p) + '" placeholder="3">' +
+        '<input class="c" type="text" data-sch="' + dow + '|' + i + '|course" value="' + esc(it.course) + '" placeholder="课程名">' +
+        '<input class="l" type="text" data-sch="' + dow + '|' + i + '|place" value="' + esc(it.place) + '" placeholder="地点">' +
+        '<button class="btn sm danger" data-schdel="' + dow + '|' + i + '">×</button></div>');
+    });
+    html.push('<button class="btn sm" data-schadd="' + dow + '">＋ 添加课程</button></div>');
+  }
+  host.innerHTML = html.join('');
+}
+
+/** 删除学生行并重排手动标记下标。 */
+function deleteStudentRow(idx) {
+  state.students.splice(idx, 1);
+  Object.keys(state.marks).forEach(function (wk) {
+    const src = state.marks[wk], dst = {};
+    Object.keys(src).forEach(function (key) {
+      const parts = key.split('-');
+      const i = Number(parts[0]);
+      if (i === idx) return;                       // 丢弃被删行的标记
+      const ni = i > idx ? i - 1 : i;
+      dst[ni + '-' + parts[1] + '-' + parts[2]] = src[key];
+    });
+    state.marks[wk] = dst;
+  });
+  saveState();
+  renderSettings();
+  renderSheet();
+}
+
+/* ===================== 12) Tab 切换 ===================== */
+/** 切换底部导航页签。 */
+function switchTab(name) {
+  $$('.panel').forEach(function (p) { p.classList.remove('active'); });
+  const el = $('#panel-' + name);
+  if (el) el.classList.add('active');
+  $$('.tabbar button').forEach(function (b) {
+    b.classList.toggle('active', b.getAttribute('data-tab') === name);
+  });
+  window.scrollTo(0, 0);
+}
+
+/* ===================== 13) 初始化与事件绑定 ===================== */
+/** 绑定所有交互事件。 */
+function bindEvents() {
+  // --- 底部导航 ---
+  $$('.tabbar button').forEach(function (b) {
+    b.addEventListener('click', function () { switchTab(b.getAttribute('data-tab')); });
+  });
+
+  // --- OCR ---
+  // 注意：.click() 必须在用户手势内同步触发，不能放进 setTimeout/Promise（iOS 会拦截）
+  $('#btnCam').addEventListener('click', function () { $('#fileCam').click(); });
+  $('#btnPick').addEventListener('click', function () { $('#filePick').click(); });
+
+  // --- OCR 参数 ---
+  $('#setPsm').addEventListener('change', function (e) {
+    state.ocrPsm = e.target.value === '11' ? '11' : '6';
+    saveState();
+    toast('OCR 版面模式已切换为 PSM ' + state.ocrPsm);
+  });
+  $('#setPreproc').addEventListener('change', function (e) {
+    state.ocrPreproc = e.target.value === '0' ? '0' : '1';
+    saveState();
+    toast(state.ocrPreproc === '1' ? '已开启图像预处理' : '已关闭图像预处理');
+  });
+  $('#fileCam').addEventListener('change', function (e) {
+    if (e.target.files && e.target.files[0]) runOcr(e.target.files[0]);
+    e.target.value = '';
+  });
+  $('#filePick').addEventListener('change', function (e) {
+    if (e.target.files && e.target.files[0]) runOcr(e.target.files[0]);
+    e.target.value = '';
+  });
+  $('#btnParseText').addEventListener('click', function () {
+    const t = $('#pasteText').value.trim();
+    if (!t) { toast('请先粘贴请假条文字'); return; }
+    openConfirmForm(extractFields(t), -1);
+  });
+  $('#btnManual').addEventListener('click', function () {
+    const now = new Date();
+    const today = fmtDate(now);
+    openConfirmForm({
+      name:'', sid:'', college:state.college, className:state.className, type:'事假',
+      start: today + 'T08:30', end: today + 'T20:40', days:'1', approve:'通过', raw:''
+    }, -1);
+  });
+
+  // --- 核对表单 ---
+  $('#fCancel').addEventListener('click', closeConfirmForm);
+  $('#fSave').addEventListener('click', saveLeaveFromForm);
+  $('#modal').addEventListener('click', function (e) { if (e.target === $('#modal')) closeConfirmForm(); });
+
+  // --- 请假记录 ---
+  $('#btnAddLeave').addEventListener('click', function () { $('#btnManual').click(); });
+  $('#leaveList').addEventListener('click', function (e) {
+    const edit = e.target.getAttribute && e.target.getAttribute('data-edit');
+    const del = e.target.getAttribute && e.target.getAttribute('data-remove');
+    if (edit) {
+      const id = Number(edit);
+      const rec = state.leaves.filter(function (l) { return l.id === id; })[0];
+      if (rec) openConfirmForm(Object.assign({}, rec), id);
+    } else if (del) {
+      const id = Number(del);
+      state.leaves = state.leaves.filter(function (l) { return l.id !== id; });
+      saveState(); renderLeaves(); renderSheet();
+      toast('已删除，考勤表已联动更新');
+    }
+  });
+
+  // --- 周切换 ---
+  $('#weekSel').addEventListener('change', function (e) {
+    state.week = Number(e.target.value); saveState(); renderSheet();
+  });
+  $('#btnPrevWeek').addEventListener('click', function () {
+    state.week = Math.max(1, state.week - 1); $('#weekSel').value = state.week; saveState(); renderSheet();
+  });
+  $('#btnNextWeek').addEventListener('click', function () {
+    state.week = Math.min(state.weeks, state.week + 1); $('#weekSel').value = state.week; saveState(); renderSheet();
+  });
+  $('#btnJump').addEventListener('click', function () {
+    const d = $('#jumpDate').value;
+    if (!d) { toast('请选择日期'); return; }
+    const w = Math.min(state.weeks, Math.max(1, weekOfDate(d)));
+    state.week = w; $('#weekSel').value = w; saveState(); renderSheet();
+    toast('已跳转到第 ' + w + ' 周');
+  });
+
+  // --- 考勤表交互（事件委托） ---
+  $('#tableHost').addEventListener('click', function (e) {
+    const cell = e.target.closest ? e.target.closest('td.cell') : null;
+    if (cell) {
+      cycleMark(Number(cell.getAttribute('data-idx')), Number(cell.getAttribute('data-dow')), Number(cell.getAttribute('data-p')));
+      return;
+    }
+    const delBtn = e.target.closest ? e.target.closest('.row-del') : null;
+    if (delBtn) { deleteStudentRow(Number(delBtn.getAttribute('data-del'))); }
+  });
+  $('#tableHost').addEventListener('input', function (e) {
+    if (e.target.classList && e.target.classList.contains('name-input')) {
+      const i = Number(e.target.getAttribute('data-idx'));
+      state.students[i] = e.target.value;
+      saveState();
+    }
+  });
+
+  // --- 输出 ---
+  $('#btnExport').addEventListener('click', exportExcel);
+  $('#btnPrint').addEventListener('click', function () { window.print(); });
+  $('#btnClearMarks').addEventListener('click', function () {
+    if (!confirm('确定清空第 ' + state.week + ' 周的所有手动标记吗？（自动标记会重新生成）')) return;
+    state.marks['w' + state.week] = {};
+    saveState(); renderSheet(); toast('已清空本周手动标记');
+  });
+
+  // --- 设置：基础 ---
+  const bindText = function (sel, key, cast) {
+    $(sel).addEventListener('change', function (e) {
+      state[key] = cast ? cast(e.target.value) : e.target.value;
+      // 周数/人数变化后重新钳制当前周，避免越界
+      state.week = Math.min(state.weeks, Math.max(1, state.week));
+      saveState(); renderWeekSelect(); renderSheet();
+      $('#weekSel').value = state.week;
+    });
+  };
+  bindText('#setSchool', 'school');
+  bindText('#setCollege', 'college');
+  bindText('#setClass', 'className');
+  bindText('#setHeadcount', 'headcount', Number);
+  bindText('#setTermStart', 'termStart');
+  bindText('#setWeeks', 'weeks', Number);
+
+  // --- 设置：名单 ---
+  $('#btnApplyStudents').addEventListener('click', function () {
+    const arr = $('#setStudents').value.replace(/\r/g, '').split('\n')
+      .map(function (s) { return s.trim(); });
+    while (arr.length && arr[arr.length - 1] === '') arr.pop();   // 去掉末尾空行
+    state.students = arr.length ? arr : [''];
+    state.headcount = state.students.length;
+    $('#setHeadcount').value = state.headcount;
+    saveState(); renderSheet(); toast('名单已应用，共 ' + state.students.length + ' 行');
+  });
+  $('#btnFill49').addEventListener('click', function () {
+    state.students = new Array(state.headcount || 49).fill('');
+    $('#setStudents').value = state.students.join('\n');
+    saveState(); renderSheet(); toast('已重置为 ' + state.students.length + ' 行空名单');
+  });
+
+  // --- 设置：节假日 ---
+  $('#btnAddHol').addEventListener('click', function () {
+    const d = $('#newHolDate').value, n = $('#newHolName').value.trim();
+    if (!d) { toast('请选择日期'); return; }
+    state.holidays = state.holidays.filter(function (h) { return h.date !== d; });
+    state.holidays.push({date: d, name: n || '放假'});
+    saveState(); renderHolidayEditor(); renderSheet(); toast('已添加节假日');
+  });
+  $('#holList').addEventListener('click', function (e) {
+    const d = e.target.getAttribute && e.target.getAttribute('data-holdel');
+    if (!d) return;
+    state.holidays = state.holidays.filter(function (h) { return h.date !== d; });
+    saveState(); renderHolidayEditor(); renderSheet();
+  });
+
+  // --- 设置：节次 ---
+  $('#perList').addEventListener('change', function (e) {
+    const i = e.target.getAttribute('data-peri');
+    const f = e.target.getAttribute('data-perf');
+    if (i === null || !f) return;
+    state.periods[Number(i)][f] = e.target.value;
+    saveState(); renderSheet();
+  });
+
+  // --- 设置：课表 ---
+  $('#schList').addEventListener('change', function (e) {
+    const key = e.target.getAttribute('data-sch');
+    if (!key) return;
+    const parts = key.split('|');
+    const dow = parts[0], i = Number(parts[1]), f = parts[2];
+    if (state.schedule[dow] && state.schedule[dow][i]) state.schedule[dow][i][f] = e.target.value;
+    saveState(); renderSheet();
+  });
+  $('#schList').addEventListener('click', function (e) {
+    const add = e.target.getAttribute && e.target.getAttribute('data-schadd');
+    const del = e.target.getAttribute && e.target.getAttribute('data-schdel');
+    if (add) {
+      state.schedule[add] = state.schedule[add] || [];
+      state.schedule[add].push({p:'1', course:'', place:''});
+      saveState(); renderScheduleEditor(); renderSheet();
+    } else if (del) {
+      const parts = del.split('|');
+      state.schedule[parts[0]].splice(Number(parts[1]), 1);
+      saveState(); renderScheduleEditor(); renderSheet();
+    }
+  });
+
+  // --- 数据管理 ---
+  $('#btnExportJson').addEventListener('click', function () {
+    const blob = new Blob([JSON.stringify(state, null, 2)], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'attendance_backup_' + fmtDate(new Date()) + '.json';
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  });
+  $('#btnReset').addEventListener('click', function () {
+    if (!confirm('确定恢复默认设置吗？名单、课表、请假记录与标记都会被清空！')) return;
+    state = defaultState();
+    saveState(); renderAll(); toast('已恢复默认设置');
+  });
+}
+
+/** 全量渲染。 */
+function renderAll() {
+  renderWeekSelect();
+  renderLeaves();
+  renderSettings();
+  renderSheet();
+  $('#hdrSub').textContent = state.school + ' ' + state.college + ' · ' + state.className;
+}
+
+/** 应用入口。 */
+function init() {
+  state = loadState();
+  const w = currentWeek();
+  // 若本地没有保存过周次，则默认定位到当前周
+  if (!localStorage.getItem(STORAGE_KEY)) state.week = w;
+  state.week = Math.min(state.weeks, Math.max(1, state.week));
+  bindEvents();
+  renderAll();
+  $('#weekSel').value = state.week;
+  $('#jumpDate').value = fmtDate(new Date());
+  if (typeof Tesseract === 'undefined' || typeof XLSX === 'undefined') {
+    $('#depWarn').style.display = 'block';
+    $('#ocrStatus').textContent = '外部组件未加载：' +
+      (typeof Tesseract === 'undefined' ? 'OCR ' : '') + (typeof XLSX === 'undefined' ? 'Excel ' : '') + '不可用，手动填写功能不受影响。';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', init);
+
+/* ===================== 14) PWA：注册 Service Worker + 离线包可见状态 ===================== */
+/* 必须用相对路径 ./sw.js；file:// 或不支持 SW 的环境直接失败且不影响主功能。 */
+(function () {
+  /* ---- 离线包缓存相关的用户可见告警（全部包在 try 里，环境不支持时静默降级）---- */
+  function swWarnBox() {
+    let box = document.getElementById('swCacheWarn');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'swCacheWarn';
+      box.className = 'dep-warn';
+      box.style.display = 'block';
+      const anchor = document.getElementById('depWarn');
+      if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(box, anchor);
+      else document.body.appendChild(box);
+    }
+    return box;
+  }
+
+  function swFailText(list) {
+    const arr = Array.isArray(list) ? list.slice(0, 3) : [];
+    const more = Array.isArray(list) && list.length > 3 ? ' 等 ' + list.length + ' 项' : '';
+    return '以下资源没缓存成功：' + (arr.join('、') || '未知资源') + more + '。';
+  }
+
+  function swShowWarn(list) {
+    const box = swWarnBox();
+    box.innerHTML = '<b>⚠️ 离线包下载不完整</b><br>' + swFailText(list) +
+      '现在断网可能导致拍照识别失败。请连着网点下面的按钮重试，' +
+      '或刷新页面让浏览器自动重试。' +
+      '<div style="margin-top:8px"><button type="button" class="btn" ' +
+      'id="btnSwRetry" style="padding:6px 12px">🔄 重新下载离线包</button></div>';
+    const btn = document.getElementById('btnSwRetry');
+    if (btn) btn.onclick = swRetryCache;
+  }
+
+  function swHideWarn() {
+    const box = document.getElementById('swCacheWarn');
+    if (box && box.parentNode) box.parentNode.removeChild(box);
+  }
+
+  function swRetryCache() {
+    const box = swWarnBox();
+    const pendingText = '正在重新下载离线包（约 14MB），请保持联网…';
+    box.textContent = pendingText;
+    // 极少数情况下既没有 active worker 也没有 waiting worker，
+    // ready 会一直挂着；给个兜底引导，避免按钮按下去毫无反馈。
+    setTimeout(function () {
+      if (box.textContent === pendingText) {
+        box.textContent = '还没完成？请保持联网并刷新页面，浏览器会自动重新下载离线包。';
+      }
+    }, 45000);
+    navigator.serviceWorker.ready.then(function (reg) {
+      const target = reg.active || reg.waiting || reg.installing;
+      if (target) target.postMessage({ type: 'RELOAD_CACHE' });
+      // 关键资源失败会导致 install 作废、新 SW 被丢弃，必须触发一次重新 install
+      return reg.update();
+    }).catch(function (err) {
+      box.textContent = '重试失败：' + ((err && err.message) || err) +
+        '，请刷新页面并联网后再试。';
+    });
+  }
+
+  function swOnMessage(ev) {
+    const d = (ev && ev.data) || {};
+    if (d.type === 'PRECACHE_OK') {
+      swHideWarn();
+      if (typeof toast === 'function') toast('离线包已就绪，现在断网也能识别');
+    } else if (d.type === 'PRECACHE_FAILED' || d.type === 'CACHE_INCOMPLETE' ||
+               d.type === 'CACHE_MISS_OFFLINE') {
+      swShowWarn(d.failed);
+    }
+  }
+
+  try {
+    if (!('serviceWorker' in navigator)) return;
+    if (location.protocol !== 'http:' && location.protocol !== 'https:') return;  // file:// 跳过
+    navigator.serviceWorker.addEventListener('message', swOnMessage);
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(function () {
+        /* 注册失败静默：离线能力缺失不影响手动填写等主功能 */
+      });
+    });
+  } catch (e) { /* ignore */ }
+})();
+</script>
+</body>
+</html>

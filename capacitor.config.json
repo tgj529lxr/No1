@@ -1,0 +1,6 @@
+{
+  "appId": "cn.edu.gzmu.attendance",
+  "appName": "考勤助手",
+  "webDir": "dist",
+  "loggingEnabled": false
+}
