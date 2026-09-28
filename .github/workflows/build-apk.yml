@@ -57,8 +57,12 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: 准备 Android SDK
-        uses: android-actions/setup-android@v3
+      - name: 准备 Android SDK（使用 runner 自带 sdkmanager）
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: 构建 Web 资源到 dist
         run: npm run build
