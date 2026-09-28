@@ -363,13 +363,60 @@ details pre{background:#f8fafc;border:1px solid var(--bd);border-radius:8px;padd
       <p class="hint">打印体请假条用 PSM 6；手写/排版零散、识别结果缺失严重时改用 PSM 11。修改后立即生效于下一次识别。</p>
     </div>
 
+    <div class="card" id="cloudCard">
+      <h2>云同步 <span class="tag">多设备数据统一</span></h2>
+      <div id="cloudLoginView">
+        <div class="row" style="gap:6px;margin-bottom:8px">
+          <button class="btn sm" id="cloudTabPwd" type="button">密码登录</button>
+          <button class="btn sm" id="cloudTabOtp" type="button">验证码登录</button>
+          <button class="btn sm" id="cloudTabReg" type="button">注册</button>
+        </div>
+        <div id="cloudFormPwd">
+          <label class="fld"><span>邮箱</span><input type="email" id="cloudEmailPwd" placeholder="you@stu.gzmu.edu.cn"></label>
+          <label class="fld"><span>密码</span><input type="password" id="cloudPwdPwd"></label>
+          <div class="row" style="margin-top:8px">
+            <button class="btn primary grow" id="btnCloudPwdLogin" type="button">登录</button>
+            <button class="btn" id="btnCloudForgot" type="button">忘记密码？</button>
+          </div>
+        </div>
+        <div id="cloudFormOtp" hidden>
+          <label class="fld"><span>邮箱</span><input type="email" id="cloudEmailOtp" placeholder="you@stu.gzmu.edu.cn"></label>
+          <div class="row"><input type="text" id="cloudCodeOtp" placeholder="邮箱验证码" class="grow" style="width:auto"><button class="btn" id="btnCloudSendOtp" type="button">获取验证码</button></div>
+          <div class="row" style="margin-top:8px"><button class="btn primary grow" id="btnCloudOtpLogin" type="button">登录</button></div>
+        </div>
+        <div id="cloudFormReg" hidden>
+          <label class="fld"><span>邮箱</span><input type="email" id="cloudEmailReg" placeholder="you@stu.gzmu.edu.cn"></label>
+          <label class="fld"><span>设置密码</span><input type="password" id="cloudPwdReg"></label>
+          <div class="row"><input type="text" id="cloudCodeReg" placeholder="邮箱验证码" class="grow" style="width:auto"><button class="btn" id="btnCloudSendReg" type="button">获取验证码</button></div>
+          <div class="row" style="margin-top:8px"><button class="btn primary grow" id="btnCloudReg" type="button">注册并登录</button></div>
+        </div>
+        <div id="cloudFormForgot" hidden>
+          <label class="fld"><span>注册邮箱</span><input type="email" id="cloudEmailForgot"></label>
+          <div class="row"><input type="text" id="cloudCodeForgot" placeholder="邮件验证码" class="grow" style="width:auto"><button class="btn" id="btnCloudSendForgot" type="button">发送验证码</button></div>
+          <label class="fld" style="margin-top:6px"><span>新密码</span><input type="password" id="cloudPwdForgot"></label>
+          <div class="row" style="margin-top:8px"><button class="btn primary grow" id="btnCloudReset" type="button">重置密码并登录</button></div>
+        </div>
+        <p class="hint" id="cloudLoginMsg"></p>
+      </div>
+      <div id="cloudUserView" hidden>
+        <p style="margin:0 0 6px">已登录：<b id="cloudUserEmail"></b></p>
+        <div class="row">
+          <button class="btn" id="btnCloudPush" type="button">上传到云端</button>
+          <button class="btn" id="btnCloudPull" type="button">从云端恢复</button>
+          <button class="btn danger" id="btnCloudSignOut" type="button">退出登录</button>
+        </div>
+        <p class="hint" id="cloudStatus"></p>
+      </div>
+      <p class="hint">登录后所有设备共用同一份云端数据（名单/课表/请假/标记），修改约 3 秒后自动同步。云登录仅在已登记的发布地址下可用。</p>
+    </div>
+
     <div class="card">
       <h2>数据管理</h2>
       <div class="row">
         <button class="btn" id="btnExportJson">导出数据备份(JSON)</button>
         <button class="btn danger" id="btnReset">恢复默认设置</button>
       </div>
-      <p class="hint">所有数据自动保存在本设备浏览器 localStorage 中，不会上传网络。</p>
+      <p class="hint">数据保存在本设备浏览器中；登录「云同步」后才会上传到你的账号，实现多设备统一。</p>
     </div>
   </section>
 </main>
@@ -414,6 +461,7 @@ details pre{background:#f8fafc;border:1px solid var(--bd);border-radius:8px;padd
 
 <div class="toast" id="toast"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@tencent-ai/workbuddy-cloud-sdk@dev/lib/index.global.js"></script>
 <script>
 "use strict";
 /* =========================================================================
@@ -612,10 +660,12 @@ function normalizeState(s) {
   return out;
 }
 
-/** 保存状态（带"已保存"提示）。 */
+/** 保存状态（带"已保存"提示；登录云同步后自动防抖上传云端）。 */
 let saveTimer = null;
 function saveState() {
+  state.updatedAt = Date.now();
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* 配额不足时静默 */ }
+  scheduleCloudPush();
   const tip = $('#saveTip');
   if (tip) {
     tip.style.display = 'inline-block';
@@ -1770,6 +1820,310 @@ function renderAll() {
   $('#hdrSub').textContent = state.school + ' ' + state.college + ' · ' + state.className;
 }
 
+/* ===================== 12) 云同步（多设备数据统一） ===================== */
+const CLOUD_ENDPOINT = 'https://attendance-sync.app.workbuddy.host';
+const CLOUD_PUBLISHABLE_KEY = 'wbpk_hfSnP513bRhMTMzFjHcDkf_ndASXcv36yU4vtAbOuhSCKmB9O6Bmm4r';
+const CLOUD_PUSH_DELAY = 3000;   // 修改后防抖 3s 自动上传
+let cloud = null;                // SDK 客户端
+let cloudUser = null;            // 当前登录用户
+let cloudPendingOtp = null;      // 验证码登录挑战 {email, verificationId, isExistingUser}
+let cloudPendingReg = null;      // 注册挑战
+let cloudPendingReset = null;    // 忘记密码的 updateUser 句柄
+let cloudPushTimer = null;
+let cloudAdopting = false;       // 正在采用云端数据时避免回环上传
+
+function cloudReady() { return !!(cloud && cloudUser); }
+function cloudMsg(msg) { const el = document.getElementById('cloudLoginMsg'); if (el) el.textContent = msg || ''; }
+function cloudStatus(msg) { const el = document.getElementById('cloudStatus'); if (el) el.textContent = msg || ''; }
+
+/** 惰性创建 SDK 客户端（SDK 未加载时给出可读错误）。 */
+async function ensureCloud() {
+  if (cloud) return cloud;
+  if (typeof WorkBuddyCloud === 'undefined') throw new Error('云组件未加载，请联网后刷新重试');
+  cloud = WorkBuddyCloud.createWorkBuddyCloud({
+    endpoint: CLOUD_ENDPOINT,
+    publishableKey: CLOUD_PUBLISHABLE_KEY,
+  });
+  return cloud;
+}
+
+/** 切换登录卡片内的表单页签。 */
+function switchCloudForm(name) {
+  ['Pwd', 'Otp', 'Reg', 'Forgot'].forEach(function (f) {
+    const el = document.getElementById('cloudForm' + f);
+    if (el) el.hidden = (f !== name);
+  });
+  cloudMsg('');
+}
+
+/** 登录成功后的统一入口：记录用户 → 渲染 → 拉云端数据。 */
+async function cloudSignInOk(session) {
+  cloudUser = (session && session.user) || null;
+  cloudMsg('');
+  renderSyncUI();
+  if (cloudUser) await pullCloudState({ silent: true });
+}
+
+/** 渲染云同步卡片的登录态视图。 */
+function renderSyncUI() {
+  const loginView = document.getElementById('cloudLoginView');
+  const userView = document.getElementById('cloudUserView');
+  if (!loginView || !userView) return;
+  loginView.hidden = !!cloudUser;
+  userView.hidden = !cloudUser;
+  if (cloudUser) {
+    const em = document.getElementById('cloudUserEmail');
+    if (em) em.textContent = cloudUser.email || cloudUser.id || '';
+    cloudStatus('自动同步已开启：本机修改约 3 秒后自动上传云端。');
+  }
+}
+
+/** 把当前 state 上传云端（登录后有效）。 */
+async function pushCloudState(opts) {
+  opts = opts || {};
+  if (!cloudReady()) return;
+  try {
+    const path = cloud.storage.userPath(cloudUser.id, 'state.json');
+    const body = new Blob(
+      [JSON.stringify({ updatedAt: state.updatedAt || Date.now(), state: state })],
+      { type: 'application/json' }
+    );
+    const res = await cloud.storage.upload(path, body, { contentType: 'application/json', upsert: true });
+    if (res && res.error) throw new Error(res.error.message || '上传失败');
+    cloudStatus('已同步到云端 · ' + new Date().toLocaleTimeString());
+    if (!opts.silent) toast('已上传到云端');
+  } catch (e) {
+    cloudStatus('上传失败：' + ((e && e.message) || e) + '（稍后修改会自动重试）');
+    if (!opts.silent) toast('上传失败：' + ((e && e.message) || e));
+  }
+}
+
+/** 从云端拉取并按 updatedAt 合并（新者胜）。 */
+async function pullCloudState(opts) {
+  opts = opts || {};
+  if (!cloudReady()) return;
+  try {
+    const path = cloud.storage.userPath(cloudUser.id, 'state.json');
+    let hasCloud = false;
+    try {
+      const ex = await cloud.storage.exists(path);
+      hasCloud = !!(ex && ex.data && !ex.error);
+    } catch (e) { hasCloud = false; }
+    if (!hasCloud) {
+      await pushCloudState({ silent: true });
+      if (!opts.silent) toast('云端暂无数据，已上传本机数据');
+      return;
+    }
+    const dl = await cloud.storage.download(path);
+    if (dl && dl.error) throw new Error(dl.error.message || '下载失败');
+    const text = await dl.data.text();
+    const parsed = JSON.parse(text);
+    const cloudAt = Number(parsed && parsed.updatedAt) || 0;
+    const localAt = Number(state.updatedAt) || 0;
+    if (parsed && parsed.state && cloudAt > localAt) {
+      cloudAdopting = true;
+      state = normalizeState(parsed.state);
+      state.updatedAt = cloudAt;
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* 忽略 */ }
+      renderAll();
+      $('#weekSel').value = state.week;
+      cloudAdopting = false;
+      cloudStatus('已从云端恢复较新数据 · ' + new Date().toLocaleTimeString());
+      if (!opts.silent) toast('已从云端恢复最新数据');
+    } else {
+      await pushCloudState({ silent: true });
+      if (!opts.silent) toast('本机数据较新，已上传云端');
+    }
+  } catch (e) {
+    cloudStatus('云端同步失败：' + ((e && e.message) || e));
+    if (!opts.silent) toast('云端恢复失败：' + ((e && e.message) || e));
+  }
+}
+
+/** saveState 后自动防抖上传。 */
+function scheduleCloudPush() {
+  if (cloudAdopting || !cloudReady()) return;
+  clearTimeout(cloudPushTimer);
+  cloudPushTimer = setTimeout(function () { pushCloudState({ silent: true }); }, CLOUD_PUSH_DELAY);
+}
+
+/** 绑定云同步卡片全部事件。 */
+function bindCloudEvents() {
+  const byId = function (i) { return document.getElementById(i); };
+  const val = function (i) { const el = byId(i); return el ? String(el.value || '').trim() : ''; };
+
+  byId('cloudTabPwd').addEventListener('click', function () { switchCloudForm('Pwd'); });
+  byId('cloudTabOtp').addEventListener('click', function () { switchCloudForm('Otp'); });
+  byId('cloudTabReg').addEventListener('click', function () { switchCloudForm('Reg'); });
+  byId('btnCloudForgot').addEventListener('click', function () { switchCloudForm('Forgot'); });
+
+  /* ---- 密码登录 ---- */
+  byId('btnCloudPwdLogin').addEventListener('click', async function () {
+    try {
+      await ensureCloud();
+      const res = await cloud.auth.signInWithPassword({ email: val('cloudEmailPwd'), password: byId('cloudPwdPwd').value });
+      if (res && res.error) { cloudMsg('登录失败：' + res.error.message); return; }
+      await cloudSignInOk(res.data);
+    } catch (e) { cloudMsg('登录失败：' + ((e && e.message) || e)); }
+  });
+
+  /* ---- 验证码登录（先发码，保存挑战；再验证） ---- */
+  byId('btnCloudSendOtp').addEventListener('click', async function () {
+    const btn = this;
+    try {
+      await ensureCloud();
+      const email = val('cloudEmailOtp');
+      if (!email) { cloudMsg('请先填写邮箱'); return; }
+      btn.disabled = true;
+      const sent = await cloud.auth.sendOtp({ email: email });
+      if (sent && sent.error) { cloudMsg('发送失败：' + sent.error.message); btn.disabled = false; return; }
+      cloudPendingOtp = { email: email, verificationId: sent.data.verificationId, isExistingUser: sent.data.isExistingUser };
+      cloudMsg('验证码已发送到邮箱，请查收（若未收到请检查垃圾箱）');
+      let left = 60;
+      btn.textContent = left + 's';
+      const t = setInterval(function () {
+        left--;
+        if (left <= 0) { clearInterval(t); btn.textContent = '获取验证码'; btn.disabled = false; }
+        else btn.textContent = left + 's';
+      }, 1000);
+    } catch (e) { cloudMsg('发送失败：' + ((e && e.message) || e)); btn.disabled = false; }
+  });
+  byId('btnCloudOtpLogin').addEventListener('click', async function () {
+    try {
+      await ensureCloud();
+      const email = val('cloudEmailOtp');
+      if (!cloudPendingOtp || cloudPendingOtp.email !== email) { cloudMsg('请先为当前邮箱获取验证码'); return; }
+      const done = await cloud.auth.verifyOtp({
+        email: cloudPendingOtp.email,
+        verificationId: cloudPendingOtp.verificationId,
+        isExistingUser: cloudPendingOtp.isExistingUser,
+        token: val('cloudCodeOtp'),
+      });
+      if (done && done.error) { cloudMsg('验证失败：' + done.error.message); return; }
+      cloudPendingOtp = null;
+      await cloudSignInOk(done.data);
+    } catch (e) { cloudMsg('登录失败：' + ((e && e.message) || e)); }
+  });
+
+  /* ---- 注册（验证码 + 密码，邮箱注册必须设密码） ---- */
+  byId('btnCloudSendReg').addEventListener('click', async function () {
+    const btn = this;
+    try {
+      await ensureCloud();
+      const email = val('cloudEmailReg');
+      if (!email) { cloudMsg('请先填写邮箱'); return; }
+      if (!byId('cloudPwdReg').value) { cloudMsg('请先设置密码'); return; }
+      btn.disabled = true;
+      const sent = await cloud.auth.sendOtp({ email: email });
+      if (sent && sent.error) { cloudMsg('发送失败：' + sent.error.message); btn.disabled = false; return; }
+      cloudPendingReg = { email: email, verificationId: sent.data.verificationId, isExistingUser: sent.data.isExistingUser };
+      cloudMsg('验证码已发送到邮箱，请查收');
+      let left = 60;
+      btn.textContent = left + 's';
+      const t = setInterval(function () {
+        left--;
+        if (left <= 0) { clearInterval(t); btn.textContent = '获取验证码'; btn.disabled = false; }
+        else btn.textContent = left + 's';
+      }, 1000);
+    } catch (e) { cloudMsg('发送失败：' + ((e && e.message) || e)); btn.disabled = false; }
+  });
+  byId('btnCloudReg').addEventListener('click', async function () {
+    try {
+      await ensureCloud();
+      const email = val('cloudEmailReg');
+      if (!cloudPendingReg || cloudPendingReg.email !== email) { cloudMsg('请先为当前邮箱获取验证码'); return; }
+      if (cloudPendingReg.isExistingUser) {
+        cloudMsg('该邮箱已注册，请改用「密码登录」或「验证码登录」');
+        return;
+      }
+      const done = await cloud.auth.verifyOtp({
+        email: cloudPendingReg.email,
+        verificationId: cloudPendingReg.verificationId,
+        isExistingUser: cloudPendingReg.isExistingUser,
+        token: val('cloudCodeReg'),
+        password: byId('cloudPwdReg').value,
+      });
+      if (done && done.error) { cloudMsg('注册失败：' + done.error.message); return; }
+      cloudPendingReg = null;
+      await cloudSignInOk(done.data);
+    } catch (e) { cloudMsg('注册失败：' + ((e && e.message) || e)); }
+  });
+
+  /* ---- 忘记密码 ---- */
+  byId('btnCloudSendForgot').addEventListener('click', async function () {
+    const btn = this;
+    try {
+      await ensureCloud();
+      const email = val('cloudEmailForgot');
+      if (!email) { cloudMsg('请先填写注册邮箱'); return; }
+      btn.disabled = true;
+      const started = await cloud.auth.resetPasswordForEmail(email);
+      if (started && started.error) { cloudMsg('发送失败：' + started.error.message); btn.disabled = false; return; }
+      cloudPendingReset = started.data;
+      cloudMsg('重置验证码已发送到邮箱，请查收');
+      let left = 60;
+      btn.textContent = left + 's';
+      const t = setInterval(function () {
+        left--;
+        if (left <= 0) { clearInterval(t); btn.textContent = '发送验证码'; btn.disabled = false; }
+        else btn.textContent = left + 's';
+      }, 1000);
+    } catch (e) { cloudMsg('发送失败：' + ((e && e.message) || e)); btn.disabled = false; }
+  });
+  byId('btnCloudReset').addEventListener('click', async function () {
+    try {
+      await ensureCloud();
+      if (!cloudPendingReset) { cloudMsg('请先发送验证码'); return; }
+      const newPwd = byId('cloudPwdForgot').value;
+      if (!newPwd) { cloudMsg('请填写新密码'); return; }
+      const completed = await cloudPendingReset.updateUser({ nonce: val('cloudCodeForgot'), password: newPwd });
+      if (completed && completed.error) { cloudMsg('重置失败：' + completed.error.message); return; }
+      cloudPendingReset = null;
+      await cloudSignInOk(completed.data);
+    } catch (e) { cloudMsg('重置失败：' + ((e && e.message) || e)); }
+  });
+
+  /* ---- 已登录视图 ---- */
+  byId('btnCloudPush').addEventListener('click', function () { pushCloudState({ silent: false }); });
+  byId('btnCloudPull').addEventListener('click', function () {
+    if (!confirm('将从云端恢复数据，本机较旧的数据会被云端覆盖。继续吗？')) return;
+    pullCloudState({ silent: false });
+  });
+  byId('btnCloudSignOut').addEventListener('click', async function () {
+    try { if (cloud) await cloud.auth.signOut(); } catch (e) { /* 忽略 */ }
+    cloudUser = null;
+    renderSyncUI();
+    toast('已退出登录（本机数据保留）');
+  });
+}
+
+/** 初始化云同步：恢复会话 + 监听登录态。 */
+async function initCloud() {
+  const loginView = document.getElementById('cloudLoginView');
+  if (typeof WorkBuddyCloud === 'undefined') {
+    if (loginView) loginView.hidden = false;
+    cloudMsg('云组件未加载（当前离线或网络受限），联网刷新后可用');
+    return;
+  }
+  try {
+    await ensureCloud();
+    const res = await cloud.auth.getSession();
+    if (res && res.data && res.data.user) {
+      cloudUser = res.data.user;
+      renderSyncUI();
+      await pullCloudState({ silent: true });
+    } else {
+      renderSyncUI();
+    }
+    cloud.auth.onAuthStateChange(function (event) {
+      if (event === 'SIGNED_OUT') { cloudUser = null; renderSyncUI(); }
+    });
+  } catch (e) {
+    renderSyncUI();
+    cloudMsg('云服务暂不可用：' + ((e && e.message) || e));
+  }
+}
+
 /** 应用入口。 */
 function init() {
   state = loadState();
@@ -1778,7 +2132,9 @@ function init() {
   if (!localStorage.getItem(STORAGE_KEY)) state.week = w;
   state.week = Math.min(state.weeks, Math.max(1, state.week));
   bindEvents();
+  bindCloudEvents();
   renderAll();
+  initCloud();
   $('#weekSel').value = state.week;
   $('#jumpDate').value = fmtDate(new Date());
   if (typeof Tesseract === 'undefined' || typeof XLSX === 'undefined') {
@@ -1793,6 +2149,106 @@ document.addEventListener('DOMContentLoaded', init);
 /* ===================== 14) PWA：注册 Service Worker + 离线包可见状态 ===================== */
 /* 必须用相对路径 ./sw.js；file:// 或不支持 SW 的环境直接失败且不影响主功能。 */
 (function () {
+  /* ---- 应用内离线包预载器：联网时由页面直接把重资源写入 attendance-offline-v1 缓存 ----
+   * 不依赖 SW install（install 一次性预缓存 14MB 在 iOS/WebView 会超时作废），
+   * 改为渐进下载 + 进度 + 重试；SW 的 caches.match 会跨所有缓存查找，离线照样命中。 */
+  var OFFLINE_ASSETS = [
+    './index.html',
+    './manifest.webmanifest',
+    './vendor/xlsx.full.min.js',
+    './vendor/tesseract/tesseract.min.js',
+    './vendor/tesseract/worker.min.js',
+    './vendor/tesseract/core/tesseract-core-simd-lstm.wasm.js',
+    './vendor/tesseract/core/tesseract-core-relaxedsimd-lstm.wasm.js',
+    './vendor/tesseract/core/tesseract-core-lstm.wasm.js',
+    './vendor/tessdata/chi_sim.traineddata.gz',
+    './icons/icon-192.png',
+    './icons/icon-512.png'
+  ];
+  var offlinePrefetching = false;
+
+  function cacheAsset(url, cache, onProg) {
+    return fetch(url, { cache: 'reload' }).then(function (res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status + ' ' + url);
+      var clone = res.clone();
+      var total = Number(res.headers.get('content-length')) || 0;
+      var loaded = 0;
+      var reader = (res.body && res.body.getReader) ? res.body.getReader() : null;
+      var chain = Promise.resolve();
+      if (reader) {
+        chain = (function loop() {
+          return reader.read().then(function (r) {
+            if (r.done) return;
+            loaded += r.value ? r.value.length : 0;
+            onProg(loaded, total);
+            return loop();
+          });
+        })();
+      }
+      return chain.then(function () { return cache.put(url, clone); });
+    });
+  }
+
+  function prefetchOfflineAssets(opts) {
+    opts = opts || {};
+    if (offlinePrefetching) return Promise.resolve(false);
+    if (typeof caches === 'undefined') {
+      if (opts.onError) opts.onError('当前环境不支持离线缓存');
+      return Promise.resolve(false);
+    }
+    if (!navigator.onLine) {
+      if (opts.onError) opts.onError('当前离线，无法下载离线包，请联网后再试');
+      return Promise.resolve(false);
+    }
+    offlinePrefetching = true;
+    var box = swWarnBox();
+    box.className = 'dep-warn';
+    box.style.display = 'block';
+    box.innerHTML = '<b>📦 正在准备离线包…</b>' +
+      '<div style="height:8px;background:#eee;border-radius:4px;margin-top:6px;overflow:hidden">' +
+      '<div id="offlinePrefetchFill" style="height:100%;width:0;background:#2e7d32;transition:width .2s"></div></div>' +
+      '<div id="offlinePrefetchTxt" style="margin-top:4px;font-size:12px"></div>';
+    var fill = document.getElementById('offlinePrefetchFill');
+    var txt = document.getElementById('offlinePrefetchTxt');
+    return caches.open('attendance-offline-v1').then(function (cache) {
+      var done = 0;
+      function next(i) {
+        if (i >= OFFLINE_ASSETS.length) {
+          if (fill) fill.style.width = '100%';
+          try { localStorage.setItem('offlinePrefetched', '1'); } catch (e) {}
+          swHideWarn();
+          if (typeof toast === 'function') toast('离线包已就绪，断网也能拍照识别');
+          if (opts.onDone) opts.onDone();
+          return true;
+        }
+        var url = OFFLINE_ASSETS[i];
+        if (txt) txt.textContent = '下载中 ' + (i + 1) + '/' + OFFLINE_ASSETS.length +
+          '：' + url.replace(/^\.\//, '');
+        return cacheAsset(url, cache, function (loaded, total) {
+          var pct = Math.round(((i + (total ? loaded / total : 1)) / OFFLINE_ASSETS.length) * 100);
+          if (fill) fill.style.width = pct + '%';
+        }).then(function () {
+          done++;
+          return next(i + 1);
+        });
+      }
+      return next(0);
+    }).then(function (ok) {
+      return ok;
+    }).catch(function (e) {
+      box.innerHTML = '<b>⚠️ 离线包下载未完成</b><br>' + ((e && e.message) || e) +
+        '<div style="margin-top:8px"><button type="button" class="btn" id="btnSwRetry" ' +
+        'style="padding:6px 12px">🔄 重新下载离线包</button></div>';
+      var btn = document.getElementById('btnSwRetry');
+      if (btn) btn.onclick = function () { offlinePrefetching = false; prefetchOfflineAssets(); };
+      if (opts.onError) opts.onError((e && e.message) || String(e));
+      return false;
+    }).then(function (ok) {
+      offlinePrefetching = false;
+      return ok;
+    });
+  }
+
   /* ---- 离线包缓存相关的用户可见告警（全部包在 try 里，环境不支持时静默降级）---- */
   function swWarnBox() {
     let box = document.getElementById('swCacheWarn');

@@ -29,7 +29,12 @@ const OPTIONAL_URLS = [
   './icons/icon-512.png'
 ];
 
-/* install 时预缓存的完整资源清单（保持与磁盘文件一一对应） */
+/* install 时预缓存的「轻量必需资源」清单（保持与磁盘文件一一对应）。
+ * 注意：3 个 wasm 引擎(~12MB) + 语言包(~2MB) 故意不放在 install 里——
+ * 一次性预缓存约 14MB 在 iOS Safari / Capacitor WebView 里极易超时，
+ * 导致整批 install 作废、旧缓存被丢弃，页面持续误报「离线包下载不完整」。
+ * 这些重资源改由页面「应用内离线包预载器」(attendance-offline-v1) 在联网时
+ * 渐进下载并写入缓存，SW 的 caches.match 会跨所有缓存查找，离线照样命中。 */
 const PRECACHE_URLS = [
   './',
   './index.html',
@@ -37,13 +42,21 @@ const PRECACHE_URLS = [
   './vendor/xlsx.full.min.js',
   './vendor/tesseract/tesseract.min.js',
   './vendor/tesseract/worker.min.js',
-  './vendor/tesseract/core/tesseract-core-simd-lstm.wasm.js',
-  './vendor/tesseract/core/tesseract-core-relaxedsimd-lstm.wasm.js',
-  './vendor/tesseract/core/tesseract-core-lstm.wasm.js',
-  './vendor/tessdata/chi_sim.traineddata.gz',
   './icons/icon-192.png',
   './icons/icon-512.png'
 ];
+
+/* 「重资源」：由页面预载器在联网时下载并写入 attendance-offline-v1，
+ * 不阻塞 SW install。清单与 src/index.html 的 OFFLINE_ASSETS 保持一致。 */
+const LAZY_ASSETS = [
+  './vendor/tesseract/core/tesseract-core-simd-lstm.wasm.js',
+  './vendor/tesseract/core/tesseract-core-relaxedsimd-lstm.wasm.js',
+  './vendor/tesseract/core/tesseract-core-lstm.wasm.js',
+  './vendor/tessdata/chi_sim.traineddata.gz'
+];
+
+/* 应用内预载器写入的缓存名（页面与 SW 共用，便于离线命中） */
+const OFFLINE_CACHE = 'attendance-offline-v1';
 
 /* 关键资源：缺任何一条都会导致「离线可用」承诺失效（OCR 引擎 / 语言包 / 离线首页 / Excel） */
 const CRITICAL_URLS = PRECACHE_URLS.filter(function (u) {
@@ -232,7 +245,9 @@ self.addEventListener('activate', function (event) {
     caches.keys()
       .then(function (keys) {
         return Promise.all(keys.map(function (key) {
-          if (key !== CACHE_NAME) return caches.delete(key);
+          /* 保留 OFFLINE_CACHE：这是页面预载器写入的重资源缓存（wasm/语言包），
+             不能因 SW 版本更替被清掉，否则离线识别资源全丢 */
+          if (key !== CACHE_NAME && key !== OFFLINE_CACHE) return caches.delete(key);
           return null;
         }));
       })
