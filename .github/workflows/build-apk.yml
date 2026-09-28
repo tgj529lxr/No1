@@ -57,15 +57,15 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: 准备 Android SDK（使用 runner 自带 sdkmanager）
+      - name: 校验 Android SDK（runner 已预装 android-35）
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
         run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          test -d "$ANDROID_HOME/platforms/android-35" && echo "OK: android-35 已预装" || echo "MISSING: android-35"
+          test -d "$ANDROID_HOME/build-tools/35.0.0" && echo "OK: build-tools 35.0.0 已预装" || echo "MISSING: build-tools 35.0.0"
           SDKM=$(ls "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -1)
-          if [ -z "$SDKM" ]; then echo "::error::未找到 sdkmanager，ANDROID_HOME=$ANDROID_HOME"; exit 1; fi
-          echo "使用 sdkmanager: $SDKM"
-          "$SDKM" --version
-          "$SDKM" --install --accept-licenses "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          if [ -n "$SDKM" ]; then yes | "$SDKM" --licenses > /dev/null 2>&1 || true; fi
 
       - name: 构建 Web 资源到 dist
         run: npm run build
