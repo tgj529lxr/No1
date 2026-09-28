@@ -40,6 +40,7 @@ const PRECACHE_URLS = [
   './index.html',
   './manifest.webmanifest',
   './vendor/xlsx.full.min.js',
+  './vendor/exceljs.min.js',
   './vendor/tesseract/tesseract.min.js',
   './vendor/tesseract/worker.min.js',
   './icons/icon-192.png',

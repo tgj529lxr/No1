@@ -18,6 +18,7 @@
 <!-- ===== 外部依赖（全部本地 vendor/，离线可用；加载失败时自动降级为纯手动模式） ===== -->
 <script src="vendor/tesseract/tesseract.min.js"></script>
 <script src="vendor/xlsx.full.min.js"></script>
+<script src="vendor/exceljs.min.js"></script>
 
 <style>
 /* ===================== 基础样式 ===================== */
@@ -1363,7 +1364,7 @@ function renderLeaves() {
 /* ===================== 10) Excel 导出 / 打印 ===================== */
 /** 导出当前周的考勤表为 xlsx（尽量复刻模板结构）。 */
 function exportExcel() {
-  if (typeof XLSX === 'undefined') {
+  if (typeof ExcelJS === 'undefined') {
     toast('Excel 组件未加载，无法导出');
     $('#depWarn').style.display = 'block';
     return;
@@ -1491,23 +1492,96 @@ function exportExcel() {
     { s: { r: 20, c: 25 }, e: { r: 21, c: 27 } }  // 右表 姓名(头 21-22)
   ];
 
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!merges'] = merges;
-  ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: 29, c: 53 } }); // 与模版一致 A1:BB30（30 行 × 54 列）
-  const cols = [];
-  cols[0] = { wch: 5 };
-  cols[1] = { wch: 12 };
-  for (let d = 0; d < 5; d++) for (let p = 1; p <= PER; p++) cols[2 + d * PER + (p - 1)] = { wch: 3.6 };
-  for (let c = 2; c <= 47; c++) if (!cols[c]) cols[c] = { wch: 3.6 };
-  cols[52] = { wch: 10 };
-  ws['!cols'] = cols;
-  ws['!rows'] = [{ hpt: 26 }, { hpt: 22 }];
+  /* ---- 用 ExcelJS 生成：完整复刻模板的框线/列宽/行高/字体/对齐 ---- */
+  if (typeof ExcelJS === 'undefined') {
+    toast('Excel 组件（ExcelJS）未加载，无法导出');
+    $('#depWarn').style.display = 'block';
+    return;
+  }
 
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+  // 模板精确列宽（A..BB 共 54 列，与 xlrd 实测一致）
+  const COL_W = [
+    6.625, 5.375, 2.25, 1.875, 2.0, 2.125, 2.25, 2.25, 2.25, 2.25, 2.25, 2.5,
+    2.0, 1.75, 1.75, 1.75, 1.75, 1.75, 1.75, 1.875, 1.875, 2.5, 1.75, 1.875,
+    2.0, 1.875, 2.125, 1.875, 1.75, 1.625, 1.75, 2.25, 1.75, 1.75, 1.75, 1.5,
+    1.75, 2.25, 2.25, 2.25, 2.25, 3.125, 2.25, 2.25, 2.25, 2.25, 2.25, 2.25,
+    2.25, 2.25, 2.25, 2.5, 14.875, 0.125
+  ];
+  // 模板精确行高（磅）
+  const ROW_H = [
+    21.95, 21.95, 18.75, 11.25,
+    18.75, 18.75, 18.75, 18.75, 18.75, 18.75, 18.75, 18.75, 18.75, 18.75, 18.75,
+    18.75, 18.75, 18.75, 18.75, 18.75, 18.75,
+    14.25,
+    18.75, 18.75, 18.75, 18.75, 18.75, 18.75,
+    14.25, 18.75
+  ];
+
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Sheet1');
+
+  // 列宽 / 行高
+  COL_W.forEach(function (w, i) { ws.getColumn(i + 1).width = w; });
+  ROW_H.forEach(function (h, i) { ws.getRow(i + 1).height = h; });
+
+  // 写入数据（0 索引 aoa → 1 索引工作表）
+  for (let r = 0; r < aoa.length; r++) {
+    for (let c = 0; c < aoa[r].length; c++) {
+      if (aoa[r][c] !== '' && aoa[r][c] !== undefined && aoa[r][c] !== null) {
+        ws.getCell(r + 1, c + 1).value = aoa[r][c];
+      }
+    }
+  }
+
+  // 合并单元格（与模版一致的 35 项）
+  merges.forEach(function (m) {
+    ws.mergeCells(m.s.r + 1, m.s.c + 1, m.e.r + 1, m.e.c + 1);
+  });
+
+  // 边框：整个表格区域 A1:BB30 全部细实线（与模板一致）
+  const thin = { style: 'thin', color: { argb: 'FF000000' } };
+  const GRID = { top: thin, left: thin, bottom: thin, right: thin };
+  for (let r = 1; r <= 30; r++) {
+    for (let c = 1; c <= 54; c++) {
+      ws.getCell(r, c).border = GRID;
+    }
+  }
+
+  // 字体与对齐（与模板一致：标题黑体14居中，正文宋体12居中，签字列宋体9）
+  for (let r = 1; r <= 30; r++) {
+    for (let c = 1; c <= 54; c++) {
+      const cell = ws.getCell(r, c);
+      cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      cell.font = { name: '宋体', size: 12 };
+    }
+  }
+  // R1 标题：黑体 14
+  ws.getCell(1, 1).font = { name: '黑体', size: 14 };
+  // R3 表头：宋体 14
+  for (let c = 1; c <= 52; c++) ws.getCell(3, c).font = { name: '宋体', size: 14 };
+  // R4/R22 节次数字 + BA 签字列：宋体 9
+  for (let c = 3; c <= 53; c++) { ws.getCell(4, c).font = { name: '宋体', size: 9 }; }
+  for (let c = 3; c <= 53; c++) { ws.getCell(22, c).font = { name: '宋体', size: 9 }; }
+  for (let r = 5; r <= 19; r++) ws.getCell(r, 53).font = { name: '宋体', size: 9 };
+  // R20 注 / R21 填表说明 / R30 特殊情况说明：左对齐 + 自动换行
+  ws.getCell(20, 2).alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
+  ws.getCell(21, 49).alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
+  ws.getCell(30, 1).alignment = { vertical: 'middle', horizontal: 'left' };
+
   const fname = '考勤表_第' + week + '周_' + state.className + '_' + mon + '至' + fri + '.xlsx';
-  XLSX.writeFile(wb, fname);
-  toast('已导出 ' + fname);
+  wb.xlsx.writeBuffer().then(function (buf) {
+    const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = fname;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+    toast('已导出 ' + fname);
+  }).catch(function (e) {
+    toast('导出失败：' + ((e && e.message) || e));
+  });
 }
 
 /* ===================== 11) 设置面板 ===================== */
@@ -2156,6 +2230,7 @@ document.addEventListener('DOMContentLoaded', init);
     './index.html',
     './manifest.webmanifest',
     './vendor/xlsx.full.min.js',
+    './vendor/exceljs.min.js',
     './vendor/tesseract/tesseract.min.js',
     './vendor/tesseract/worker.min.js',
     './vendor/tesseract/core/tesseract-core-simd-lstm.wasm.js',
