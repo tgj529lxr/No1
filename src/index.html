@@ -1364,7 +1364,8 @@ function renderLeaves() {
 /* ===================== 10) Excel 导出 / 打印 ===================== */
 /** 导出当前周的考勤表为 xlsx（尽量复刻模板结构）。 */
 function exportExcel() {
-  if (typeof ExcelJS === 'undefined') {
+  const hasEJ = typeof ExcelJS !== 'undefined';
+  if (!hasEJ && typeof XLSX === 'undefined') {
     toast('Excel 组件未加载，无法导出');
     $('#depWarn').style.display = 'block';
     return;
@@ -1492,12 +1493,26 @@ function exportExcel() {
     { s: { r: 20, c: 25 }, e: { r: 21, c: 27 } }  // 右表 姓名(头 21-22)
   ];
 
-  /* ---- 用 ExcelJS 生成：完整复刻模板的框线/列宽/行高/字体/对齐 ---- */
-  if (typeof ExcelJS === 'undefined') {
-    toast('Excel 组件（ExcelJS）未加载，无法导出');
-    $('#depWarn').style.display = 'block';
+  /* ---- 降级路径：ExcelJS 缺失时用 SheetJS 导出（无边框，但数据与结构完整） ---- */
+  if (!hasEJ) {
+    const ws2 = XLSX.utils.aoa_to_sheet(aoa);
+    ws2['!merges'] = merges;
+    ws2['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: 29, c: 53 } });
+    const cols = [];
+    cols[0] = { wch: 6.6 };
+    cols[1] = { wch: 5.4 };
+    for (let c = 2; c <= 51; c++) cols[c] = { wch: 2.25 };
+    cols[52] = { wch: 14.9 };
+    ws2['!cols'] = cols;
+    ws2['!rows'] = [{ hpt: 21.95 }, { hpt: 21.95 }];
+    const wb2 = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb2, ws2, 'Sheet1');
+    XLSX.writeFile(wb2, '考勤表_第' + week + '周_' + state.className + '_' + mon + '至' + fri + '.xlsx');
+    toast('已导出（降级模式：无框线）');
     return;
   }
+
+  /* ---- 用 ExcelJS 生成：完整复刻模板的框线/列宽/行高/字体/对齐 ---- */
 
   // 模板精确列宽（A..BB 共 54 列，与 xlrd 实测一致）
   const COL_W = [
