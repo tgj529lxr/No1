@@ -118,7 +118,27 @@ jobs:
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon --stacktrace
+          set -o pipefail
+          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee /tmp/gradle-build.log
+
+      - name: 失败时把 Gradle 日志尾部写入 annotations（供 API 读取诊断）
+        if: failure()
+        run: |
+          LOG=/tmp/gradle-build.log
+          if [ ! -f "$LOG" ]; then
+            echo "::error::Gradle 日志文件不存在（gradlew 可能未启动）"
+            exit 0
+          fi
+          # 去掉 ANSI 颜色码、去掉空行，取最后 200 行
+          sed -e 's/\x1b\[[0-9;]*m//g' "$LOG" | grep -v '^[[:space:]]*$' | tail -n 200 > /tmp/tail.txt
+          echo "日志尾部行数: $(wc -l < /tmp/tail.txt)"
+          # 按 3500 字节切块，每块发一条 ::error:: annotation（无 admin 权限也能用 API 读到）
+          rm -f /tmp/chunk_*
+          split -b 3500 -d /tmp/tail.txt /tmp/chunk_
+          for f in /tmp/chunk_*; do
+            MSG=$(tr '\n' '~NL~' < "$f")
+            echo "::error::GRADLE_LOG_PART::$MSG"
+          done
 
       - name: 整理 APK 文件名
         run: |
