@@ -811,7 +811,7 @@ function renderSheet() {
 
   // ---- 数据行 ----
   const body = [];
-  const rowCount = Math.max(state.students.length, Number(state.headcount) || 0);
+  const rowCount = 15; // 与模版一致：固定 15 行，不新增
   for (let i = 0; i < rowCount; i++) {
     const name = state.students[i] || '';
     body.push('<tr>');
@@ -1320,83 +1320,138 @@ function exportExcel() {
   }
   const week = state.week;
   const days = weekDays(week);
-  const schMap = buildScheduleMap();
   const auto = computeAutoMarks(week);
-  const COLS = 2 + 5 * PERIOD_COUNT + 1;          // 序号 + 姓名 + 50 + 负责人签字
-  const lastCol = COLS - 1;
-
-  const aoa = [];
-  const blankRow = function () { return new Array(COLS).fill(''); };
-
-  // 行1：标题
-  const r1 = blankRow(); r1[0] = '     ' + state.school + state.college + '上课考勤表'; aoa.push(r1);
-  // 行2：周次 / 日期 / 班级 / 人数
   const mon = days[0].date, fri = days[4].date;
-  const r2 = blankRow();
-  r2[0] = '第   ' + week + '   周        ' + mon.slice(0, 4) + '年　' + mon.slice(5, 7) + '　月　' +
-          mon.slice(8, 10) + '　日至　' + fri.slice(5, 7) + '　月　' + fri.slice(8, 10) +
-          '　日            班级：' + state.className + '             班级人数：' + state.headcount;
+  const ROWS = 15;            // 主表固定 15 行，绝不新增
+  const PER = PERIOD_COUNT;  // 每天 10 节
+  const LAST = 52;           // 列 A..BA（0 索引 52 = BA = 负责人签字）
+  const WK = 6;              // 周末区固定 6 行（与模版一致）
+  const aoa = [];
+  const blank = function () { return new Array(LAST + 1).fill(''); };
+
+  // 行1：标题（与模版一致，6 个前导空格用于居中）
+  const r1 = blank();
+  r1[0] = '      贵州民族大学数据科学与信息工程学院上课考勤表';
+  aoa.push(r1);
+
+  // 行2：周次 / 日期 / 班级 / 人数
+  const y = mon.slice(0, 4);
+  const r2 = blank();
+  r2[0] = '第   ' + week + '   周        ' + y + '年\u3000' + mon.slice(5, 7) + '\u3000月\u3000' + mon.slice(8, 10) +
+          '\u3000日至\u3000' + fri.slice(5, 7) + '\u3000月\u3000' + fri.slice(8, 10) + '\u3000日            班级：' +
+          state.className + '             班级人数：' + (Number(state.headcount) || ROWS);
   aoa.push(r2);
-  // 行3：星期分组
-  const r3 = blankRow(); r3[0] = '序号'; r3[1] = '姓名'; r3[lastCol] = '负责人签字';
+
+  // 行3：星期分组（严格模版：周一..周五，不追加“放假”等额外文字）
+  const r3 = blank();
+  const r4 = blank();
+  r3[0] = '序号'; r3[1] = '姓名';
+  const wd = ['星期一', '星期二', '星期三', '星期四', '星期五'];
   for (let d = 0; d < 5; d++) {
-    const hol = holidayOf(days[d].date);
-    r3[2 + d * PERIOD_COUNT] = days[d].label + (hol ? '（' + hol + '放假）' : '');
+    r3[2 + d * PER] = wd[d];
+    for (let p = 1; p <= PER; p++) r4[2 + d * PER + (p - 1)] = p;
   }
+  r4[LAST] = '负责人签字';   // 模版中“负责人签字”位于 R4（BA4）
   aoa.push(r3);
-  // 行4：节次编号
-  const r4 = blankRow();
-  for (let d = 0; d < 5; d++) for (let p = 1; p <= PERIOD_COUNT; p++) r4[2 + d * PERIOD_COUNT + (p - 1)] = p;
   aoa.push(r4);
-  // 数据行
-  const rowCount = Math.max(state.students.length, Number(state.headcount) || 0);
-  for (let i = 0; i < rowCount; i++) {
-    const row = blankRow();
+
+  // 行5..行19：主表 15 行
+  const baLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日', '班委会签字'];
+  for (let i = 0; i < ROWS; i++) {
+    const row = blank();
     row[0] = i + 1;
     row[1] = state.students[i] || '';
     for (let d = 0; d < 5; d++) {
-      for (let p = 1; p <= PERIOD_COUNT; p++) {
-        row[2 + d * PERIOD_COUNT + (p - 1)] = getMark(week, i, days[d].dow, p, auto);
-      }
+      const dow = days[d].dow;
+      for (let p = 1; p <= PER; p++) row[2 + d * PER + (p - 1)] = getMark(week, i, dow, p, auto);
     }
+    if (i < baLabels.length) row[LAST] = baLabels[i];
     aoa.push(row);
   }
-  const after = aoa.length;   // 数据结束的行号（0-based）
-  // 注释行
-  const rn = blankRow();
-  rn[0] = '注：考勤符号：请假"○"，迟到"+"，早退"—"旷课"Δ"。表格由班长汇总每周一周五上午交A6-308办公室。';
-  aoa.push(rn);
-  // 班主任签字 / 特殊情况说明
-  const rs = blankRow(); rs[0] = '班主任签字：'; rs[25] = '特殊情况说明：' + $('#specialNote').textContent;
-  aoa.push(rs);
-  // 班委会签字
-  const rc = blankRow(); rc[0] = '班委会签字：'; aoa.push(rc);
 
-  // ---- 合并单元格 ----
-  const merges = [
-    {s:{r:0, c:0}, e:{r:0, c:lastCol}},
-    {s:{r:1, c:0}, e:{r:1, c:lastCol}},
-    {s:{r:2, c:0}, e:{r:3, c:0}},
-    {s:{r:2, c:1}, e:{r:3, c:1}},
-    {s:{r:2, c:lastCol}, e:{r:3, c:lastCol}}
-  ];
-  for (let d = 0; d < 5; d++) {
-    merges.push({s:{r:2, c:2 + d * PERIOD_COUNT}, e:{r:2, c:2 + d * PERIOD_COUNT + PERIOD_COUNT - 1}});
+  // 行20：注
+  const r20 = blank();
+  r20[1] = '注：考勤符号：请假“○”，迟到“+”，早退“—”旷课“Δ”。表格由班长汇总每周一周五上午交A6-308办公室。';
+  aoa.push(r20);
+
+  // 行21：周末表头（左表 A..V，右表 W..AV，说明 AW..BA）
+  const r21 = blank();
+  r21[0] = '序号'; r21[1] = '姓名'; r21[2] = '星期六'; r21[12] = '星期日';
+  r21[22] = '序号'; r21[25] = '姓名'; r21[28] = '星期六'; r21[38] = '星期日';
+  r21[48] = '填表说明：按照相应的符号代表的情况对应填写；只填写存在异常情况的同学情况，正常的同学情况不填；集体活动按照上课处理。各班每周交一份。';
+  aoa.push(r21);
+
+  // 行22：周末节次
+  const r22 = blank();
+  [2, 12].forEach(function (b) { for (let p = 1; p <= PER; p++) r22[b + (p - 1)] = p; });
+  [28, 38].forEach(function (b) { for (let p = 1; p <= PER; p++) r22[b + (p - 1)] = p; });
+  aoa.push(r22);
+
+  // 行23..行28：周末 6 行（左 序号1-6，右 序号7-12）
+  for (let k = 0; k < WK; k++) {
+    const row = blank();
+    row[0] = k + 1; row[1] = state.students[k] || '';
+    for (let p = 1; p <= PER; p++) { row[2 + (p - 1)] = getMark(week, k, 6, p, auto); row[12 + (p - 1)] = getMark(week, k, 7, p, auto); }
+    row[22] = k + 7; row[25] = state.students[k + 6] || '';
+    for (let p = 1; p <= PER; p++) { row[28 + (p - 1)] = getMark(week, k + 6, 6, p, auto); row[38 + (p - 1)] = getMark(week, k + 6, 7, p, auto); }
+    aoa.push(row);
   }
-  merges.push({s:{r:after, c:0}, e:{r:after, c:lastCol}});          // 注释行
-  merges.push({s:{r:after + 1, c:0}, e:{r:after + 1, c:24}});        // 班主任签字
-  merges.push({s:{r:after + 1, c:25}, e:{r:after + 1, c:lastCol}});  // 特殊情况说明
-  merges.push({s:{r:after + 2, c:0}, e:{r:after + 2, c:lastCol}});   // 班委会签字
+
+  // 行29：班主任签字
+  const r29 = blank(); r29[0] = '班主任签字：'; aoa.push(r29);
+  // 行30：特殊情况说明
+  const r30 = blank(); r30[0] = '特殊情况说明：' + ($('#specialNote') ? $('#specialNote').textContent : ''); aoa.push(r30);
+
+  // 合并单元格（与模版一致，共 35 项）
+  const merges = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 51 } },    // R1 标题
+    { s: { r: 1, c: 0 }, e: { r: 1, c: 51 } },    // R2 周次
+    { s: { r: 2, c: 2 }, e: { r: 2, c: 9 } },     // 星期一
+    { s: { r: 2, c: 12 }, e: { r: 2, c: 21 } },   // 星期二
+    { s: { r: 2, c: 22 }, e: { r: 2, c: 31 } },   // 星期三
+    { s: { r: 2, c: 32 }, e: { r: 2, c: 41 } },   // 星期四
+    { s: { r: 2, c: 42 }, e: { r: 2, c: 51 } },   // 星期五
+    { s: { r: 19, c: 1 }, e: { r: 19, c: 52 } },  // R20 注
+    { s: { r: 20, c: 2 }, e: { r: 20, c: 11 } },  // 周末 星期六(左)
+    { s: { r: 20, c: 12 }, e: { r: 20, c: 21 } }, // 周末 星期日(左)
+    { s: { r: 20, c: 28 }, e: { r: 20, c: 37 } }, // 周末 星期六(右)
+    { s: { r: 20, c: 38 }, e: { r: 20, c: 47 } }, // 周末 星期日(右)
+    { s: { r: 22, c: 22 }, e: { r: 22, c: 24 } }, // 右表 序号(逐行)
+    { s: { r: 23, c: 22 }, e: { r: 23, c: 24 } },
+    { s: { r: 24, c: 22 }, e: { r: 24, c: 24 } },
+    { s: { r: 25, c: 22 }, e: { r: 25, c: 24 } },
+    { s: { r: 26, c: 22 }, e: { r: 26, c: 24 } },
+    { s: { r: 27, c: 22 }, e: { r: 27, c: 24 } },
+    { s: { r: 22, c: 25 }, e: { r: 22, c: 27 } }, // 右表 姓名(逐行)
+    { s: { r: 23, c: 25 }, e: { r: 23, c: 27 } },
+    { s: { r: 24, c: 25 }, e: { r: 24, c: 27 } },
+    { s: { r: 25, c: 25 }, e: { r: 25, c: 27 } },
+    { s: { r: 26, c: 25 }, e: { r: 26, c: 27 } },
+    { s: { r: 27, c: 25 }, e: { r: 27, c: 27 } },
+    { s: { r: 28, c: 0 }, e: { r: 28, c: 52 } },  // R29 班主任签字
+    { s: { r: 29, c: 0 }, e: { r: 29, c: 9 } },   // R30 特殊情况说明(上)
+    { s: { r: 29, c: 10 }, e: { r: 29, c: 52 } }, // R30 特殊情况说明(下)
+    { s: { r: 2, c: 0 }, e: { r: 3, c: 0 } },     // 序号(主表头 3-4)
+    { s: { r: 20, c: 0 }, e: { r: 21, c: 0 } },   // 周末 序号(头 21-22)
+    { s: { r: 2, c: 1 }, e: { r: 3, c: 1 } },     // 姓名(主表头 3-4)
+    { s: { r: 20, c: 1 }, e: { r: 21, c: 1 } },   // 周末 姓名(头 21-22)
+    { s: { r: 12, c: 52 }, e: { r: 18, c: 52 } }, // 负责人签字(13-19 行合并)
+    { s: { r: 20, c: 48 }, e: { r: 27, c: 52 } }, // 填表说明(21-28)
+    { s: { r: 20, c: 22 }, e: { r: 21, c: 24 } }, // 右表 序号(头 21-22)
+    { s: { r: 20, c: 25 }, e: { r: 21, c: 27 } }  // 右表 姓名(头 21-22)
+  ];
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!merges'] = merges;
+  ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: 29, c: 53 } }); // 与模版一致 A1:BB30（30 行 × 54 列）
   const cols = [];
-  cols[0] = {wch: 5};
-  cols[1] = {wch: 12};
-  for (let d = 0; d < 5; d++) for (let p = 1; p <= PERIOD_COUNT; p++) cols[2 + d * PERIOD_COUNT + (p - 1)] = {wch: 3.6};
-  cols[lastCol] = {wch: 10};
+  cols[0] = { wch: 5 };
+  cols[1] = { wch: 12 };
+  for (let d = 0; d < 5; d++) for (let p = 1; p <= PER; p++) cols[2 + d * PER + (p - 1)] = { wch: 3.6 };
+  for (let c = 2; c <= 47; c++) if (!cols[c]) cols[c] = { wch: 3.6 };
+  cols[52] = { wch: 10 };
   ws['!cols'] = cols;
-  ws['!rows'] = [{hpt: 26}, {hpt: 22}];
+  ws['!rows'] = [{ hpt: 26 }, { hpt: 22 }];
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
